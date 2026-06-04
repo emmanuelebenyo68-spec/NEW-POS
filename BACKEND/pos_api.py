@@ -13,19 +13,16 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# Configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///pos.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_EXPIRATION_HOURS'] = 24
 
-# Fix for Render's postgres:// URL
 if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
     app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://', 'postgresql://', 1)
 
@@ -33,7 +30,7 @@ db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
 # ---------------------------
-# Models (existing + new)
+# Models (all as before)
 # ---------------------------
 class User(db.Model):
     __tablename__ = 'users'
@@ -165,7 +162,6 @@ class StockMovement(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# ---------- New Models for missing panels ----------
 class Supplier(db.Model):
     __tablename__ = 'suppliers'
     id = db.Column(db.Integer, primary_key=True)
@@ -289,7 +285,7 @@ class Shift(db.Model):
         }
 
 # ---------------------------
-# Authentication helper (unchanged)
+# Authentication helper
 # ---------------------------
 def token_required(f):
     @wraps(f)
@@ -320,7 +316,7 @@ def role_required(allowed_roles):
     return decorator
 
 # ---------------------------
-# Existing API Endpoints (health, users, products, invoices, reports)
+# API Endpoints
 # ---------------------------
 @app.route('/api/health', methods=['GET'])
 def health():
@@ -353,6 +349,24 @@ def login():
         algorithm='HS256'
     )
     return jsonify({'token': token, 'user': user.to_dict()})
+
+@app.route('/api/users', methods=['GET'])
+@token_required
+@role_required(['admin', 'manager'])
+def get_users():
+    users = User.query.all()
+    return jsonify([u.to_dict() for u in users])
+
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+@token_required
+@role_required(['admin'])
+def delete_user(user_id):
+    user = User.query.get_or_404(user_id)
+    if user.id == g.current_user.id:
+        return jsonify({'error': 'Cannot delete yourself'}), 400
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({'message': 'User deleted'}), 200
 
 @app.route('/api/products', methods=['GET'])
 @token_required
@@ -521,10 +535,6 @@ def inventory_report():
         'total_value': float(p.quantity_in_stock * p.selling_price)
     } for p in products])
 
-# ---------------------------
-# NEW ENDPOINTS for missing panels
-# ---------------------------
-
 # ---------- Suppliers ----------
 @app.route('/api/suppliers', methods=['GET'])
 @token_required
@@ -582,7 +592,6 @@ def get_returns():
 @token_required
 def create_return():
     data = request.json
-    # generate return invoice number
     return_inv = f"RET-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:4]}"
     ret = Return(
         original_invoice=data['original_invoice'],
@@ -594,7 +603,6 @@ def create_return():
         reason=data.get('reason'),
         cashier_id=g.current_user.id
     )
-    # Restore product stock
     product = Product.query.get(data['product_id'])
     if product:
         product.quantity_in_stock += data['quantity']
@@ -713,8 +721,6 @@ def end_shift():
         return jsonify({'error': 'No active shift found'}), 400
     shift.end_time = datetime.utcnow()
     shift.status = 'ended'
-    # Calculate total sales for the shift (based on invoices created during shift)
-    # Assuming shift.start_time and shift.end_time, sum invoices where cashier_id = user and sale_date between
     total = db.session.query(func.sum(Invoice.total)).filter(
         Invoice.cashier_id == g.current_user.id,
         Invoice.sale_date >= shift.start_time,
@@ -732,31 +738,29 @@ def backup_db():
     try:
         os.makedirs('backups', exist_ok=True)
         backup_name = f"backups/backup_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.db"
-        # For SQLite, copy file; for PostgreSQL, you'd need pg_dump (not implemented here)
         if 'sqlite' in app.config['SQLALCHEMY_DATABASE_URI']:
             db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
             shutil.copy2(db_path, backup_name)
         else:
-            # For PostgreSQL, you could run pg_dump, but for simplicity return message
             return jsonify({'error': 'Backup only implemented for SQLite'}), 501
         return jsonify({'message': f'Backup saved to {backup_name}'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# ---------- Invoice Panel (summary) ----------
+# ---------- Invoice Panel Summary ----------
 @app.route('/api/invoice_panel/summary', methods=['GET'])
 @token_required
 def invoice_panel_summary():
     total_invoices = Invoice.query.count()
-    total_quotes = 0  # if you have quotations model, add it
-    pending_deliveries = 0  # if deliveries model exists
+    total_quotes = 0
+    pending_deliveries = 0
     return jsonify({
         'total_invoices': total_invoices,
         'total_quotes': total_quotes,
         'pending_deliveries': pending_deliveries
     })
 
-# ---------- Receipt Records (search) ----------
+# ---------- Receipt Records ----------
 @app.route('/api/receipt_records', methods=['GET'])
 @token_required
 def receipt_records():
@@ -780,23 +784,23 @@ def receipt_records():
     } for inv in invoices])
 
 # ---------------------------
-# Serve Frontend (static/index.html)
+# Serve Frontend
 # ---------------------------
 @app.route('/')
 def serve_frontend():
     return send_from_directory('static', 'index.html')
 
 # ---------------------------
-# Seed sample data (including new models)
+# Seed sample data
 # ---------------------------
 def seed_data():
     with app.app_context():
         if User.query.count() == 0:
-            admin = User(username='admin', full_name='Administrator', role='admin')
-            admin.set_password('admin123')
+            admin = User(username='manuel', full_name='Administrator', role='admin')
+            admin.set_password('manuel')
             db.session.add(admin)
             cashier = User(username='cashier', full_name='Cashier User', role='cashier')
-            cashier.set_password('cashier123')
+            cashier.set_password('cashier')
             db.session.add(cashier)
             db.session.commit()
 
@@ -809,10 +813,10 @@ def seed_data():
         if Product.query.count() == 0:
             cat = Category.query.first()
             sample_products = [
-                {'name': 'Coca Cola 500ml', 'selling_price': 120, 'quantity': 50, 'unit': 'bottle'},
-                {'name': 'Milk 1L', 'selling_price': 85, 'quantity': 30, 'unit': 'carton'},
-                {'name': 'Bread', 'selling_price': 50, 'quantity': 20, 'unit': 'loaf'},
-                {'name': 'Rice 1kg', 'selling_price': 220, 'quantity': 40, 'unit': 'pack'},
+                {'name': 'Coca Cola 500ml', 'selling_price': 120, 'quantity': 50, 'unit': 'bottle', 'barcode': '123456789012'},
+                {'name': 'Milk 1L', 'selling_price': 85, 'quantity': 30, 'unit': 'carton', 'barcode': '234567890123'},
+                {'name': 'Bread', 'selling_price': 50, 'quantity': 20, 'unit': 'loaf', 'barcode': '345678901234'},
+                {'name': 'Rice 1kg', 'selling_price': 220, 'quantity': 40, 'unit': 'pack', 'barcode': '456789012345'},
             ]
             for p in sample_products:
                 product = Product(
@@ -820,12 +824,12 @@ def seed_data():
                     selling_price=p['selling_price'],
                     quantity_in_stock=p['quantity'],
                     unit=p['unit'],
+                    barcode=p['barcode'],
                     category_id=cat.id
                 )
                 db.session.add(product)
             db.session.commit()
 
-        # Seed sample suppliers
         if Supplier.query.count() == 0:
             suppliers = [
                 Supplier(name='ABC Distributors', contact_person='John Doe', phone='0712345678', email='abc@mail.com', address='Nairobi'),
@@ -834,13 +838,10 @@ def seed_data():
             db.session.add_all(suppliers)
             db.session.commit()
 
-        # Seed sample loyalty customers
         if LoyaltyCustomer.query.count() == 0:
             cust = LoyaltyCustomer(phone='0711111111', name='Loyal Customer', points=100, total_spent=5000)
             db.session.add(cust)
             db.session.commit()
-
-        # Seed sample expense categories? Not needed.
 
 # ---------------------------
 # Run app

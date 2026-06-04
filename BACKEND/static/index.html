@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>POS System - Complete</title>
+    <title>MANUEL SUPERMARKET POS</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
@@ -16,6 +16,15 @@
         .stat-number { font-size: 2rem; font-weight: bold; color: #2c3e50; }
         .table-container { background: white; border-radius: 12px; padding: 20px; margin-top: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
         .nav-link i { margin-right: 10px; width: 24px; }
+        .product-card { cursor: pointer; transition: 0.2s; }
+        .product-card:hover { transform: scale(1.02); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .receipt-print { font-family: monospace; white-space: pre-line; }
+        @media print {
+            .modal .modal-footer, .modal .modal-header, .btn { display: none; }
+            .modal-content { border: none; margin: 0; padding: 0; }
+            .modal-dialog { max-width: 100%; margin: 0; }
+            .receipt-print { font-size: 14px; }
+        }
     </style>
 </head>
 <body>
@@ -23,7 +32,7 @@
     <div class="row">
         <!-- Sidebar -->
         <div class="col-md-2 sidebar p-0">
-            <h4 class="text-center py-3">POS System</h4>
+            <h4 class="text-center py-3">MANUEL SUPERMARKET</h4>
             <nav class="nav flex-column">
                 <a href="#" onclick="showSection('dashboard')"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
                 <a href="#" onclick="showSection('products')"><i class="fas fa-boxes"></i> Products</a>
@@ -49,114 +58,136 @@
 
         <!-- Main content -->
         <div class="col-md-10 content">
-            <!-- Dashboard -->
             <div id="dashboard-section"><h2>Dashboard</h2><div class="row" id="dashboard-stats"></div><div class="card mt-3"><div class="card-header">Top Products</div><div class="card-body" id="top-products-list"></div></div></div>
-
-            <!-- Products -->
             <div id="products-section" style="display:none;"><h2>Products</h2><button class="btn btn-primary mb-3" onclick="showProductForm()">+ Add Product</button><div id="products-list" class="table-container"></div></div>
-
-            <!-- New Sale -->
-            <div id="sales-section" style="display:none;"><h2>New Sale</h2><div class="row"><div class="col-md-8"><div class="card p-3"><h5>Search Product</h5><input type="text" id="product-search" class="form-control" onkeyup="searchProducts()"><div id="search-results" class="mt-2"></div></div></div><div class="col-md-4"><div class="card p-3"><h5>Cart</h5><div id="cart-items"></div><hr><div>Subtotal: <span id="cart-subtotal">0.00</span></div><div>Discount (KES): <input type="number" id="discount" value="0" onchange="updateCartTotal()"></div><div>Tax (16%): <span id="cart-tax">0.00</span></div><div><strong>Total: <span id="cart-total">0.00</span></strong></div><div class="mt-3"><label>Customer Name</label><input type="text" id="customer-name" class="form-control"><label>Customer Phone</label><input type="text" id="customer-phone" class="form-control"><label>Payment Method</label><select id="payment-method" class="form-select"><option>Cash</option><option>Card</option><option>MPESA</option></select></div><button class="btn btn-success w-100 mt-3" onclick="completeSale()">Complete Sale</button></div></div></div></div>
-
-            <!-- Invoices -->
+            <div id="sales-section" style="display:none;"><h2>Point of Sale</h2><div class="row"><div class="col-md-7"><div class="card p-3 mb-3"><div class="input-group"><span class="input-group-text"><i class="fas fa-search"></i></span><input type="text" id="product-search" class="form-control" placeholder="Search product by name..." onkeyup="filterProductGrid()"></div><div class="input-group mt-2"><span class="input-group-text"><i class="fas fa-barcode"></i></span><input type="text" id="barcode-input" class="form-control" placeholder="Scan barcode / Enter code" onkeypress="handleBarcodeScan(event)"><button class="btn btn-outline-secondary" onclick="scanBarcode()">Add by Barcode</button></div></div><div id="product-grid" class="row row-cols-1 row-cols-md-2 g-3"></div></div><div class="col-md-5"><div class="card p-3"><h5>Shopping Cart</h5><div id="cart-items" style="max-height: 400px; overflow-y: auto;"></div><hr><div>Subtotal: KES <span id="cart-subtotal">0.00</span></div><div>Discount (KES): <input type="number" id="discount" value="0" class="form-control form-control-sm" onchange="updateCartTotal()"></div><div>Tax (16%): KES <span id="cart-tax">0.00</span></div><div><strong>Total: KES <span id="cart-total">0.00</span></strong></div><div class="mt-3"><label>Customer Name</label><input type="text" id="customer-name" class="form-control"><label>Customer Phone</label><input type="text" id="customer-phone" class="form-control"><label>Payment Method</label><select id="payment-method" class="form-select"><option>Cash</option><option>Card</option><option>MPESA</option></select></div><button class="btn btn-success w-100 mt-3" onclick="completeSale()">Complete Sale</button></div></div></div></div>
             <div id="invoices-section" style="display:none;"><h2>Invoices</h2><div id="invoices-list" class="table-container"></div></div>
-
-            <!-- Reports -->
             <div id="reports-section" style="display:none;"><h2>Sales Report</h2><div id="sales-report" class="table-container"></div></div>
-
-            <!-- Inventory (reuse product list for simplicity) -->
             <div id="inventory-section" style="display:none;"><h2>Inventory Management</h2><div id="inventory-list" class="table-container"></div></div>
-
-            <!-- Suppliers -->
             <div id="suppliers-section" style="display:none;"><h2>Suppliers</h2><button class="btn btn-primary mb-3" onclick="showAddSupplierForm()">+ Add Supplier</button><div id="suppliers-list" class="table-container"></div></div>
-
-            <!-- Users -->
             <div id="users-section" style="display:none;"><h2>User Management</h2><button class="btn btn-primary mb-3" onclick="showAddUserForm()">+ Add User</button><div id="users-list" class="table-container"></div></div>
-
-            <!-- Returns -->
             <div id="returns-section" style="display:none;"><h2>Returns</h2><button class="btn btn-primary mb-3" onclick="showReturnForm()">+ Process Return</button><div id="returns-list" class="table-container"></div></div>
-
-            <!-- Loyalty -->
             <div id="loyalty-section" style="display:none;"><h2>Loyalty Program</h2><button class="btn btn-primary mb-3" onclick="showAddLoyaltyForm()">+ Add Customer</button><div id="loyalty-list" class="table-container"></div></div>
-
-            <!-- Expenses -->
             <div id="expenses-section" style="display:none;"><h2>Expenses</h2><button class="btn btn-primary mb-3" onclick="showAddExpenseForm()">+ Add Expense</button><div id="expenses-list" class="table-container"></div></div>
-
-            <!-- Settings -->
             <div id="settings-section" style="display:none;"><h2>System Settings</h2><div id="settings-list" class="table-container"></div></div>
-
-            <!-- Stock Alerts -->
             <div id="stock_alerts-section" style="display:none;"><h2>Low Stock Alerts</h2><div id="alerts-list" class="table-container"></div></div>
-
-            <!-- Shift Report -->
             <div id="shift_report-section" style="display:none;"><h2>Shift Reports</h2><button class="btn btn-success mb-3" onclick="startShift()">Start Shift</button><button class="btn btn-danger mb-3" onclick="endShift()">End Shift</button><div id="shift-list" class="table-container"></div></div>
-
-            <!-- Backup -->
             <div id="backup-section" style="display:none;"><h2>Backup</h2><button class="btn btn-warning mb-3" onclick="createBackup()">Create Backup</button><div id="backup-message" class="alert alert-info"></div></div>
-
-            <!-- Invoice Panel -->
             <div id="invoice_panel-section" style="display:none;"><h2>Invoice Panel</h2><div id="invoice-summary" class="row"></div></div>
-
-            <!-- Receipt Records -->
             <div id="receipt_records-section" style="display:none;"><h2>Receipt Records</h2><div class="input-group mb-3"><input type="text" id="receipt-search" class="form-control" placeholder="Search by invoice, customer name or phone"><button class="btn btn-primary" onclick="searchReceipts()">Search</button></div><div id="receipt-records-list" class="table-container"></div></div>
         </div>
     </div>
 </div>
 
+<!-- Receipt Modal -->
+<div class="modal fade" id="receiptModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">Receipt</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body receipt-print" id="receiptContent"></div>
+            <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button type="button" class="btn btn-primary" onclick="window.print()">Print Receipt</button></div>
+        </div>
+    </div>
+</div>
+
+<!-- Login Modal (appears automatically when no token) -->
+<div id="loginModalContainer"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
     let authToken = localStorage.getItem('pos_token');
     let cart = [];
+    let allProducts = [];
+    let receiptModal = null;
 
     window.onload = function() {
-        if (!authToken) showLogin();
-        else { loadDashboard(); showSection('dashboard'); }
+        if (!authToken) {
+            showLoginModal();
+        } else {
+            loadDashboard();
+            showSection('dashboard');
+        }
+        receiptModal = new bootstrap.Modal(document.getElementById('receiptModal'));
     };
 
-    function showLogin() {
-        const html = `<div class="modal show d-block" style="background:rgba(0,0,0,0.5)"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5>Login</h5></div><div class="modal-body"><input id="login-username" class="form-control mb-2" placeholder="Username"><input id="login-password" type="password" class="form-control mb-2" placeholder="Password"><div id="login-error" class="text-danger"></div></div><div class="modal-footer"><button class="btn btn-primary" onclick="login()">Login</button></div></div></div></div>`;
-        document.body.insertAdjacentHTML('beforeend', html);
+    function showLoginModal() {
+        const modalHtml = `
+            <div class="modal show d-block" id="loginModal" style="background:rgba(0,0,0,0.5);">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header"><h5>Login to MANUEL SUPERMARKET</h5></div>
+                        <div class="modal-body">
+                            <input id="login-username" class="form-control mb-2" placeholder="Username">
+                            <input id="login-password" type="password" class="form-control mb-2" placeholder="Password">
+                            <div id="login-error" class="text-danger"></div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-primary" onclick="login()">Login</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        document.getElementById('loginModalContainer').innerHTML = modalHtml;
     }
 
     async function login() {
-        const username = document.getElementById('login-username').value, password = document.getElementById('login-password').value;
-        const res = await fetch('/api/users/login', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
-        if(res.ok) { const data=await res.json(); authToken=data.token; localStorage.setItem('pos_token',authToken); location.reload(); }
-        else document.getElementById('login-error').innerText='Invalid credentials';
+        const username = document.getElementById('login-username').value;
+        const password = document.getElementById('login-password').value;
+        const res = await fetch('/api/users/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        if (res.ok) {
+            const data = await res.json();
+            authToken = data.token;
+            localStorage.setItem('pos_token', authToken);
+            document.getElementById('loginModal').remove();
+            loadDashboard();
+            showSection('dashboard');
+        } else {
+            document.getElementById('login-error').innerText = 'Invalid username or password';
+        }
     }
 
-    function logout() { localStorage.removeItem('pos_token'); location.reload(); }
+    function logout() {
+        localStorage.removeItem('pos_token');
+        location.reload();
+    }
 
-    async function apiCall(endpoint, options={}) {
-        const res = await fetch(endpoint, {headers:{'Content-Type':'application/json','Authorization':`Bearer ${authToken}`}, ...options});
-        if(!res.ok) { if(res.status===401) logout(); throw new Error(await res.text()); }
+    async function apiCall(endpoint, options = {}) {
+        const res = await fetch(endpoint, {
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+            ...options
+        });
+        if (!res.ok) {
+            if (res.status === 401) logout();
+            throw new Error(await res.text());
+        }
         return res.json();
     }
 
-    function escapeHtml(str) {
-        if (!str) return '';
-        return str.replace(/[&<>]/g, function(m) {
-            if (m === '&') return '&amp;';
-            if (m === '<') return '&lt;';
-            if (m === '>') return '&gt;';
-            return m;
-        });
-    }
+    function escapeHtml(str) { if(!str) return ''; return str.replace(/[&<>]/g, function(m){ if(m==='&') return '&amp;'; if(m==='<') return '&lt;'; if(m==='>') return '&gt;'; return m;}); }
 
-    // ========== Dashboard ==========
+    // Dashboard
     async function loadDashboard() {
         const stats = await apiCall('/api/reports/dashboard');
-        document.getElementById('dashboard-stats').innerHTML = `<div class="col-md-3"><div class="stat-card"><div>Total Products</div><div class="stat-number">${stats.total_products}</div><div>${stats.low_stock} low stock</div></div></div><div class="col-md-3"><div class="stat-card"><div>Today's Sales</div><div class="stat-number">KES ${stats.today_sales.toFixed(2)}</div><div>${stats.today_transactions} transactions</div></div></div><div class="col-md-3"><div class="stat-card"><div>Total Revenue</div><div class="stat-number">KES ${stats.total_revenue.toFixed(2)}</div></div></div><div class="col-md-3"><div class="stat-card"><div>Daily Target</div><div class="stat-number">KES 100,000</div></div></div>`;
+        document.getElementById('dashboard-stats').innerHTML = `
+            <div class="col-md-3"><div class="stat-card"><div>Total Products</div><div class="stat-number">${stats.total_products}</div><div>${stats.low_stock} low stock</div></div></div>
+            <div class="col-md-3"><div class="stat-card"><div>Today's Sales</div><div class="stat-number">KES ${stats.today_sales.toFixed(2)}</div><div>${stats.today_transactions} transactions</div></div></div>
+            <div class="col-md-3"><div class="stat-card"><div>Total Revenue</div><div class="stat-number">KES ${stats.total_revenue.toFixed(2)}</div></div></div>
+            <div class="col-md-3"><div class="stat-card"><div>Daily Target</div><div class="stat-number">KES 100,000</div></div></div>`;
         const topProducts = stats.top_products.map(p=>`<li>${escapeHtml(p.name)} - ${p.quantity_sold} sold</li>`).join('');
         document.getElementById('top-products-list').innerHTML = `<ul>${topProducts||'<li>No sales yet</li>'}</ul>`;
     }
 
-    // ========== Products ==========
+    // Products
     async function loadProducts() {
         const products = await apiCall('/api/products');
-        let html = `<table class="table table-striped"><thead><tr><th>Name</th><th>Price</th><th>Stock</th><th>Actions</th></table></thead><tbody>`;
+        let html = `<table class="table table-striped"><thead><tr><th>Name</th><th>Price</th><th>Stock</th><th>Actions</th></tr></thead><tbody>`;
         products.forEach(p=>{ html+=`<tr><td>${escapeHtml(p.name)}</td><td>KES ${p.selling_price}</td><td>${p.quantity_in_stock}</td><td><button class="btn btn-sm btn-danger" onclick="deleteProduct(${p.id})">Delete</button></td></tr>`; });
         html+=`</tbody></table>`;
-        document.getElementById('products-list').innerHTML = html;
+        document.getElementById('products-list').innerHTML = html || '<div class="alert alert-info">No products yet.</div>';
     }
     async function deleteProduct(id) { if(confirm('Delete?')){ await apiCall(`/api/products/${id}`,{method:'DELETE'}); loadProducts(); } }
     function showProductForm() {
@@ -164,24 +195,48 @@
         if(name&&price) apiCall('/api/products',{method:'POST',body:JSON.stringify({name, selling_price:price, quantity_in_stock:stock})}).then(()=>loadProducts());
     }
 
-    // ========== New Sale ==========
-    async function searchProducts() {
-        const term = document.getElementById('product-search').value.toLowerCase();
-        const products = await apiCall('/api/products');
-        const filtered = products.filter(p=>p.name.toLowerCase().includes(term));
-        let html = `<div class="list-group">`;
-        filtered.forEach(p=>{ html+=`<a href="#" class="list-group-item list-group-item-action" onclick="addToCart(${p.id},'${escapeHtml(p.name)}',${p.selling_price},${p.quantity_in_stock})">${escapeHtml(p.name)} - KES ${p.selling_price} (Stock: ${p.quantity_in_stock})</a>`; });
-        html+=`</div>`;
-        document.getElementById('search-results').innerHTML = html;
+    // New Sale
+    async function loadProductGrid() {
+        allProducts = await apiCall('/api/products');
+        renderProductGrid(allProducts);
     }
-    function addToCart(id, name, price, stock) {
+    function renderProductGrid(products) {
+        const grid = document.getElementById('product-grid');
+        if(!products.length) { grid.innerHTML = '<div class="alert alert-info">No products found.</div>'; return; }
+        let html = '';
+        products.forEach(p => {
+            const disabled = p.quantity_in_stock <= 0 ? 'disabled' : '';
+            html += `<div class="col"><div class="card product-card h-100" onclick="addToCartById(${p.id}, '${escapeHtml(p.name)}', ${p.selling_price}, ${p.quantity_in_stock})">
+                        <div class="card-body"><h6 class="card-title">${escapeHtml(p.name)}</h6>
+                        <p class="card-text">KES ${p.selling_price}<br><span class="badge bg-secondary">Stock: ${p.quantity_in_stock}</span></p>
+                        <button class="btn btn-sm btn-primary" ${disabled}><i class="fas fa-cart-plus"></i> Add</button>
+                        </div></div></div>`;
+        });
+        grid.innerHTML = html;
+    }
+    function filterProductGrid() {
+        const term = document.getElementById('product-search').value.toLowerCase();
+        const filtered = allProducts.filter(p => p.name.toLowerCase().includes(term));
+        renderProductGrid(filtered);
+    }
+    function addToCartById(id, name, price, stock) {
         let qty = parseInt(prompt('Quantity:', '1'));
+        if(isNaN(qty)) qty = 1;
         if(qty>0 && qty<=stock) {
             let existing = cart.find(i=>i.product_id===id);
             if(existing) existing.quantity += qty;
             else cart.push({product_id:id, name, price, quantity:qty, total:price*qty});
             updateCartUI();
         } else alert('Invalid quantity or insufficient stock');
+    }
+    function handleBarcodeScan(event) { if(event.key === 'Enter') scanBarcode(); }
+    async function scanBarcode() {
+        const barcode = document.getElementById('barcode-input').value.trim();
+        if(!barcode) return;
+        const product = allProducts.find(p => p.barcode === barcode);
+        if(product) addToCartById(product.id, product.name, product.selling_price, product.quantity_in_stock);
+        else alert('Product not found with this barcode');
+        document.getElementById('barcode-input').value = '';
     }
     function updateCartUI() {
         let subtotal=0, html=`<table class="table table-sm"><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th><th></th></tr></thead><tbody>`;
@@ -191,7 +246,7 @@
             html+=`<tr><td>${escapeHtml(item.name)}</td><td><input type="number" value="${item.quantity}" min="1" style="width:60px" onchange="updateCartQty(${idx},this.value)"></td><td>KES ${item.price}</td><td>KES ${itemTotal.toFixed(2)}</td><td><button class="btn btn-sm btn-danger" onclick="removeFromCart(${idx})">X</button></td></tr>`;
         });
         html+=`</tbody></table>`;
-        document.getElementById('cart-items').innerHTML = html;
+        document.getElementById('cart-items').innerHTML = html || '<p>Cart empty</p>';
         document.getElementById('cart-subtotal').innerText = subtotal.toFixed(2);
         updateCartTotal();
     }
@@ -205,348 +260,160 @@
     }
     async function completeSale(){
         if(cart.length===0) return alert('Cart empty');
+        const paymentMethod = document.getElementById('payment-method').value;
+        let mpesaCode = null;
+        if(paymentMethod === 'MPESA') {
+            mpesaCode = prompt('Enter M-Pesa transaction code (STK Push confirmation):');
+            if(!mpesaCode) return alert('Transaction code required for M-Pesa payment');
+        }
         const subtotal=parseFloat(document.getElementById('cart-subtotal').innerText), discount=parseFloat(document.getElementById('discount').value)||0;
         const taxable=subtotal-discount, tax=taxable*0.16, total=taxable+tax;
         const saleData = {
             customer_name: document.getElementById('customer-name').value,
             customer_phone: document.getElementById('customer-phone').value,
             subtotal, discount, tax, total,
-            payment_method: document.getElementById('payment-method').value,
+            payment_method: paymentMethod,
             items: cart.map(i=>({product_id:i.product_id, quantity:i.quantity, unit_price:i.price, total:i.price*i.quantity}))
         };
-        const res = await apiCall('/api/invoices',{method:'POST',body:JSON.stringify(saleData)});
-        alert(`Sale completed! Invoice No: ${res.invoice_no}`);
-        cart=[]; updateCartUI(); loadDashboard();
+        try {
+            const res = await apiCall('/api/invoices',{method:'POST',body:JSON.stringify(saleData)});
+            showReceipt(res, mpesaCode);
+            cart=[]; updateCartUI(); loadDashboard();
+            document.getElementById('customer-name').value = '';
+            document.getElementById('customer-phone').value = '';
+            document.getElementById('discount').value = 0;
+            document.getElementById('payment-method').value = 'Cash';
+            updateCartTotal();
+        } catch(e) { alert('Sale failed: '+e.message); }
+    }
+    function showReceipt(invoice, mpesaCode) {
+        const date = new Date(invoice.sale_date).toLocaleString();
+        let itemsHtml = '';
+        invoice.items.forEach(item => {
+            itemsHtml += `<tr><td>${escapeHtml(item.product_name)}</td><td>${item.quantity}</td><td>KES ${item.unit_price.toFixed(2)}</td><td>KES ${item.total.toFixed(2)}</td></tr>`;
+        });
+        const receiptHtml = `
+            <div style="text-align:center;">
+                <h3>MANUEL SUPERMARKET</h3>
+                <p>Nairobi, Kenya<br>Tel: 0712345678</p>
+                <p>${date}<br>Invoice: ${invoice.invoice_no}</p>
+                <hr>
+                <table style="width:100%; font-size:14px;">${itemsHtml}</table>
+                <hr>
+                <p>Subtotal: KES ${invoice.subtotal.toFixed(2)}<br>
+                Discount: KES ${invoice.discount.toFixed(2)}<br>
+                Tax (16%): KES ${invoice.tax.toFixed(2)}<br>
+                <strong>Total: KES ${invoice.total.toFixed(2)}</strong><br>
+                Payment: ${invoice.payment_method} ${mpesaCode ? '(Code: '+mpesaCode+')' : ''}<br>
+                Customer: ${invoice.customer_name || 'Walk-in'} ${invoice.customer_phone ? '('+invoice.customer_phone+')' : ''}<br>
+                Cashier: ${invoice.cashier}</p>
+                <hr>
+                <p>Thank you for shopping at MANUEL SUPERMARKET!</p>
+            </div>
+        `;
+        document.getElementById('receiptContent').innerHTML = receiptHtml;
+        receiptModal.show();
     }
 
-    // ========== Invoices ==========
+    // Invoices
     async function loadInvoices() {
         const invoices = await apiCall('/api/invoices');
         let html = `<table class="table"><thead><tr><th>Invoice No</th><th>Customer</th><th>Total</th><th>Date</th><th>Cashier</th></tr></thead><tbody>`;
         invoices.forEach(inv=>{ html+=`<tr><td>${inv.invoice_no}</td><td>${escapeHtml(inv.customer_name||'Walk-in')}</td><td>KES ${inv.total.toFixed(2)}</td><td>${new Date(inv.sale_date).toLocaleString()}</td><td>${escapeHtml(inv.cashier)}</td></tr>`; });
-        html+=`</tbody><tr>`;
-        document.getElementById('invoices-list').innerHTML = html;
+        html+=`</tbody></table>`;
+        document.getElementById('invoices-list').innerHTML = html || '<div class="alert alert-info">No invoices yet.</div>';
     }
 
-    // ========== Reports ==========
+    // Reports
     async function loadSalesReport() {
         const report = await apiCall('/api/reports/sales');
         let html = `<table class="table"><thead><tr><th>Date</th><th>Transactions</th><th>Total Sales</th></tr></thead><tbody>`;
         report.forEach(r=>{ html+=`<tr><td>${r.date}</td><td>${r.transactions}</td><td>KES ${r.total.toFixed(2)}</td></tr>`; });
         html+=`</tbody></table>`;
-        document.getElementById('sales-report').innerHTML = html;
+        document.getElementById('sales-report').innerHTML = html || '<div class="alert alert-info">No sales data.</div>';
     }
 
-    // ========== Inventory (reuse product list) ==========
+    // Inventory
     async function loadInventory() {
         const products = await apiCall('/api/products');
         let html = `<table class="table table-striped"><thead><tr><th>Name</th><th>Price</th><th>Stock</th><th>Min Stock</th><th>Unit</th><th>Supplier</th></tr></thead><tbody>`;
         products.forEach(p=>{ html+=`<tr><td>${escapeHtml(p.name)}</td><td>KES ${p.selling_price}</td><td>${p.quantity_in_stock}</td><td>${p.min_stock}</td><td>${escapeHtml(p.unit)}</td><td>${escapeHtml(p.supplier||'')}</td></tr>`; });
         html+=`</tbody></table>`;
-        document.getElementById('inventory-list').innerHTML = html;
+        document.getElementById('inventory-list').innerHTML = html || '<div class="alert alert-info">No inventory data.</div>';
     }
 
-    // ========== Suppliers ==========
-    async function loadSuppliers() {
-        const suppliers = await apiCall('/api/suppliers');
-        let html = `<table class="table table-striped"><thead><tr><th>Name</th><th>Contact Person</th><th>Phone</th><th>Email</th><th>Address</th><th>Actions</th></tr></thead><tbody>`;
-        suppliers.forEach(s => {
-            html += `<tr>
-                <td>${escapeHtml(s.name)}</td>
-                <td>${escapeHtml(s.contact_person || '')}</td>
-                <td>${escapeHtml(s.phone || '')}</td>
-                <td>${escapeHtml(s.email || '')}</td>
-                <td>${escapeHtml(s.address || '')}</td>
-                <td><button class="btn btn-sm btn-danger" onclick="deleteSupplier(${s.id})">Delete</button></td>
-            </tr>`;
-        });
-        html += `</tbody></table>`;
-        document.getElementById('suppliers-list').innerHTML = html || '<p>No suppliers found.</p>';
-    }
-    function showAddSupplierForm() {
-        const name = prompt('Supplier name:'); if (!name) return;
-        const contact = prompt('Contact person (optional):');
-        const phone = prompt('Phone (optional):');
-        const email = prompt('Email (optional):');
-        const address = prompt('Address (optional):');
-        addSupplier(name, contact, phone, email, address);
-    }
-    async function addSupplier(name, contact, phone, email, address) {
-        await apiCall('/api/suppliers', { method: 'POST', body: JSON.stringify({ name, contact_person: contact, phone, email, address }) });
-        loadSuppliers();
-    }
-    async function deleteSupplier(id) {
-        if (!confirm('Delete this supplier?')) return;
-        await apiCall(`/api/suppliers/${id}`, { method: 'DELETE' });
-        loadSuppliers();
-    }
+    // Suppliers
+    async function loadSuppliers() { try{ const suppliers = await apiCall('/api/suppliers'); let html = `<table class="table table-striped"><thead><tr><th>Name</th><th>Contact Person</th><th>Phone</th><th>Email</th><th>Address</th><th>Actions</th></tr></thead><tbody>`; if(suppliers.length===0) html = '<div class="alert alert-info">No suppliers found. Add one.</div>'; else suppliers.forEach(s => { html+=`<tr><td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.contact_person||'')}</td><td>${escapeHtml(s.phone||'')}</td><td>${escapeHtml(s.email||'')}</td><td>${escapeHtml(s.address||'')}</td><td><button class="btn btn-sm btn-danger" onclick="deleteSupplier(${s.id})">Delete</button></td></tr>`; }); html+=`</tbody></table>`; document.getElementById('suppliers-list').innerHTML = html; } catch(e){ document.getElementById('suppliers-list').innerHTML = '<div class="alert alert-danger">Error loading suppliers</div>'; } }
+    function showAddSupplierForm() { const name = prompt('Supplier name:'); if(name) addSupplier(name, prompt('Contact person:'), prompt('Phone:'), prompt('Email:'), prompt('Address:')); }
+    async function addSupplier(name, contact, phone, email, address) { await apiCall('/api/suppliers', { method: 'POST', body: JSON.stringify({ name, contact_person: contact, phone, email, address }) }); loadSuppliers(); }
+    async function deleteSupplier(id) { if(confirm('Delete?')){ await apiCall(`/api/suppliers/${id}`, { method: 'DELETE' }); loadSuppliers(); } }
 
-    // ========== Users ==========
-    async function loadUsers() {
-        const users = await apiCall('/api/users');
-        let html = `<table class="table table-striped"><thead><tr><th>Username</th><th>Full Name</th><th>Role</th><th>Actions</th></tr></thead><tbody>`;
-        users.forEach(u => {
-            html += `<tr>
-                <td>${escapeHtml(u.username)}</td>
-                <td>${escapeHtml(u.full_name)}</td>
-                <td>${escapeHtml(u.role)}</td>
-                <td><button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})">Delete</button></td>
-            </tr>`;
-        });
-        html += `</tbody></table>`;
-        document.getElementById('users-list').innerHTML = html;
-    }
-    function showAddUserForm() {
-        const username = prompt('Username:'); if (!username) return;
-        const fullName = prompt('Full name:'); if (!fullName) return;
-        const password = prompt('Password:'); if (!password) return;
-        const role = prompt('Role (admin/cashier/manager):', 'cashier');
-        addUser(username, fullName, password, role);
-    }
-    async function addUser(username, fullName, password, role) {
-        await apiCall('/api/users/register', { method: 'POST', body: JSON.stringify({ username, full_name: fullName, password, role }) });
-        loadUsers();
-    }
-    async function deleteUser(id) {
-        if (!confirm('Delete this user?')) return;
-        await apiCall(`/api/users/${id}`, { method: 'DELETE' });
-        loadUsers();
-    }
+    // Users
+    async function loadUsers() { try{ const users = await apiCall('/api/users'); let html=`<table class="table"><thead><tr><th>Username</th><th>Full Name</th><th>Role</th><th>Actions</th></tr></thead><tbody>`; if(users.length===0) html='<div class="alert alert-info">No users.</div>'; else users.forEach(u=>{ html+=`<tr><td>${escapeHtml(u.username)}</td><td>${escapeHtml(u.full_name)}</td><td>${escapeHtml(u.role)}</td><td><button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})">Delete</button></td></tr>`; }); html+=`</tbody></table>`; document.getElementById('users-list').innerHTML=html; } catch(e){ document.getElementById('users-list').innerHTML='<div class="alert alert-danger">Error loading users</div>'; } }
+    function showAddUserForm() { const u=prompt('Username:'), f=prompt('Full name:'), p=prompt('Password:'), r=prompt('Role (admin/cashier/manager):','cashier'); if(u&&f&&p) addUser(u,f,p,r); }
+    async function addUser(username, fullName, password, role) { await apiCall('/api/users/register', { method: 'POST', body: JSON.stringify({ username, full_name: fullName, password, role }) }); loadUsers(); }
+    async function deleteUser(id) { if(confirm('Delete user?')){ await apiCall(`/api/users/${id}`, { method: 'DELETE' }); loadUsers(); } }
 
-    // ========== Returns ==========
-    async function loadReturns() {
-        const returns = await apiCall('/api/returns');
-        let html = `<table class="table table-striped"><thead><tr><th>Return Invoice</th><th>Original Invoice</th><th>Product</th><th>Qty</th><th>Refund</th><th>Reason</th><th>Date</th></tr></thead><tbody>`;
-        returns.forEach(r => {
-            html += `<tr>
-                <td>${escapeHtml(r.return_invoice)}</td>
-                <td>${escapeHtml(r.original_invoice)}</td>
-                <td>${escapeHtml(r.product_name)}</td>
-                <td>${r.quantity}</td>
-                <td>KES ${r.refund_amount.toFixed(2)}</td>
-                <td>${escapeHtml(r.reason)}</td>
-                <td>${new Date(r.return_date).toLocaleString()}</td>
-            </tr>`;
-        });
-        html += `</tbody></table>`;
-        document.getElementById('returns-list').innerHTML = html;
-    }
-    function showReturnForm() {
-        const invoice = prompt('Original invoice number:'); if (!invoice) return;
-        const productId = prompt('Product ID to return:'); if (!productId) return;
-        const productName = prompt('Product name:'); if (!productName) return;
-        const quantity = parseInt(prompt('Quantity to return:')); if (isNaN(quantity)) return;
-        const refundAmount = parseFloat(prompt('Refund amount (KES):')); if (isNaN(refundAmount)) return;
-        const reason = prompt('Reason for return:');
-        processReturn(invoice, productId, productName, quantity, refundAmount, reason);
-    }
-    async function processReturn(original_invoice, product_id, product_name, quantity, refund_amount, reason) {
-        await apiCall('/api/returns', { method: 'POST', body: JSON.stringify({ original_invoice, product_id, product_name, quantity, refund_amount, reason }) });
-        loadReturns();
-    }
+    // Returns
+    async function loadReturns() { let res=await apiCall('/api/returns'); let html='<table class="table"><thead><tr><th>Return Invoice</th><th>Original</th><th>Product</th><th>Qty</th><th>Refund</th><th>Reason</th><th>Date</th></tr></thead><tbody>'; if(res.length===0) html='<div class="alert alert-info">No returns yet.</div>'; else res.forEach(r=>{ html+=`<tr><td>${r.return_invoice}</td><td>${r.original_invoice}</td><td>${escapeHtml(r.product_name)}</td><td>${r.quantity}</td><td>KES ${r.refund_amount.toFixed(2)}</td><td>${escapeHtml(r.reason)}</td><td>${new Date(r.return_date).toLocaleString()}</td></tr>`; }); html+=`</tbody></table>`; document.getElementById('returns-list').innerHTML=html; }
+    function showReturnForm() { let inv=prompt('Original invoice no:'), pid=prompt('Product ID:'), pname=prompt('Product name:'), qty=parseInt(prompt('Quantity:')), refund=parseFloat(prompt('Refund amount:')), reason=prompt('Reason:'); if(inv&&pid&&pname&&qty) processReturn(inv,pid,pname,qty,refund,reason); }
+    async function processReturn(original_invoice, product_id, product_name, quantity, refund_amount, reason) { await apiCall('/api/returns', { method: 'POST', body: JSON.stringify({ original_invoice, product_id, product_name, quantity, refund_amount, reason }) }); loadReturns(); }
 
-    // ========== Loyalty ==========
-    async function loadLoyalty() {
-        const customers = await apiCall('/api/loyalty');
-        let html = `<table class="table table-striped"><thead><tr><th>Name</th><th>Phone</th><th>Points</th><th>Total Spent (KES)</th><th>Tier</th><th>Actions</th></tr></thead><tbody>`;
-        customers.forEach(c => {
-            html += `<tr>
-                <td>${escapeHtml(c.name)}</td>
-                <td>${escapeHtml(c.phone)}</td>
-                <td>${c.points}</td>
-                <td>${c.total_spent.toFixed(2)}</td>
-                <td>${c.tier}</td>
-                <td><button class="btn btn-sm btn-danger" onclick="deleteLoyaltyCustomer('${c.phone}')">Delete</button></td>
-            </tr>`;
-        });
-        html += `</tbody></table>`;
-        document.getElementById('loyalty-list').innerHTML = html || '<p>No loyalty customers found.</p>';
-    }
-    function showAddLoyaltyForm() {
-        const name = prompt('Enter customer name:'); if (!name) return;
-        const phone = prompt('Enter customer phone number:'); if (!phone) return;
-        addLoyaltyCustomer(name, phone);
-    }
-    async function addLoyaltyCustomer(name, phone) {
-        await apiCall('/api/loyalty', { method: 'POST', body: JSON.stringify({ name, phone }) });
-        loadLoyalty();
-    }
-    async function deleteLoyaltyCustomer(phone) {
-        if (!confirm('Remove this customer from loyalty program?')) return;
-        await apiCall(`/api/loyalty/${phone}`, { method: 'DELETE' });
-        loadLoyalty();
-    }
+    // Loyalty
+    async function loadLoyalty() { let res=await apiCall('/api/loyalty'); let html='<table class="table"><thead><tr><th>Name</th><th>Phone</th><th>Points</th><th>Spent</th><th>Tier</th><th>Actions</th></tr></thead><tbody>'; if(res.length===0) html='<div class="alert alert-info">No loyalty customers.</div>'; else res.forEach(c=>{ html+=`<tr><td>${escapeHtml(c.name)}</td><td>${c.phone}</td><td>${c.points}</td><td>KES ${c.total_spent.toFixed(2)}</td><td>${c.tier}</td><td><button class="btn btn-sm btn-danger" onclick="deleteLoyaltyCustomer('${c.phone}')">Delete</button></td></tr>`; }); html+=`</tbody></table>`; document.getElementById('loyalty-list').innerHTML=html; }
+    function showAddLoyaltyForm() { let name=prompt('Customer name:'), phone=prompt('Phone:'); if(name&&phone) addLoyaltyCustomer(name,phone); }
+    async function addLoyaltyCustomer(name,phone) { await apiCall('/api/loyalty', { method: 'POST', body: JSON.stringify({ name, phone }) }); loadLoyalty(); }
+    async function deleteLoyaltyCustomer(phone) { if(confirm('Remove?')){ await apiCall(`/api/loyalty/${phone}`, { method: 'DELETE' }); loadLoyalty(); } }
 
-    // ========== Expenses ==========
-    async function loadExpenses() {
-        const expenses = await apiCall('/api/expenses');
-        let html = `<table class="table table-striped"><thead><tr><th>Category</th><th>Amount (KES)</th><th>Description</th><th>Date</th><th>Recorded By</th></tr></thead><tbody>`;
-        expenses.forEach(e => {
-            html += `<td>
-                <td>${escapeHtml(e.category)}</td>
-                <td>${e.amount.toFixed(2)}</td>
-                <td>${escapeHtml(e.description || '')}</td>
-                <td>${e.expense_date}</td>
-                <td>${escapeHtml(e.user || '')}</td>
-            </tr>`;
-        });
-        html += `</tbody></table>`;
-        document.getElementById('expenses-list').innerHTML = html;
-    }
-    function showAddExpenseForm() {
-        const category = prompt('Expense category:'); if (!category) return;
-        const amount = parseFloat(prompt('Amount (KES):')); if (isNaN(amount)) return;
-        const description = prompt('Description (optional):');
-        const expenseDate = prompt('Date (YYYY-MM-DD, leave empty for today):');
-        addExpense(category, amount, description, expenseDate);
-    }
-    async function addExpense(category, amount, description, expenseDate) {
-        await apiCall('/api/expenses', { method: 'POST', body: JSON.stringify({ category, amount, description, expense_date: expenseDate || null }) });
-        loadExpenses();
-    }
+    // Expenses
+    async function loadExpenses() { let res=await apiCall('/api/expenses'); let html='<table class="table"><thead><tr><th>Category</th><th>Amount</th><th>Description</th><th>Date</th><th>By</th></tr></thead><tbody>'; if(res.length===0) html='<div class="alert alert-info">No expenses recorded.</div>'; else res.forEach(e=>{ html+=`<tr><td>${escapeHtml(e.category)}</td><td>KES ${e.amount.toFixed(2)}</td><td>${escapeHtml(e.description||'')}</td><td>${e.expense_date}</td><td>${escapeHtml(e.user||'')}</td></tr>`; }); html+=`</tbody></table>`; document.getElementById('expenses-list').innerHTML=html; }
+    function showAddExpenseForm() { let cat=prompt('Category:'), amt=parseFloat(prompt('Amount:')); if(cat&&!isNaN(amt)) addExpense(cat,amt,prompt('Description:'),null); }
+    async function addExpense(category, amount, description, expenseDate) { await apiCall('/api/expenses', { method: 'POST', body: JSON.stringify({ category, amount, description, expense_date: expenseDate || null }) }); loadExpenses(); }
 
-    // ========== Settings ==========
-    async function loadSettings() {
-        const settings = await apiCall('/api/settings');
-        let html = `<table class="table table-striped"><thead><tr><th>Setting Key</th><th>Value</th><th>Actions</th></tr></thead><tbody>`;
-        settings.forEach(s => {
-            html += `<tr>
-                <td>${escapeHtml(s.key)}</td>
-                <td><input type="text" id="setting-${s.key}" value="${escapeHtml(s.value)}" class="form-control"></td>
-                <td><button class="btn btn-sm btn-primary" onclick="updateSetting('${s.key}')">Save</button></td>
-            </tr>`;
-        });
-        html += `</tbody></table>`;
-        document.getElementById('settings-list').innerHTML = html;
-    }
-    async function updateSetting(key) {
-        const newValue = document.getElementById(`setting-${key}`).value;
-        await apiCall('/api/settings', { method: 'POST', body: JSON.stringify({ key, value: newValue }) });
-        alert('Setting updated');
-        loadSettings();
-    }
+    // Settings
+    async function loadSettings() { let res=await apiCall('/api/settings'); let html='<table class="table"><thead><tr><th>Key</th><th>Value</th><th>Action</th></tr></thead><tbody>'; if(res.length===0) html='<div class="alert alert-info">No settings yet.</div>'; else res.forEach(s=>{ html+=`<tr><td>${escapeHtml(s.key)}</td><td><input type="text" id="setting-${s.key}" value="${escapeHtml(s.value)}" class="form-control"></td><td><button class="btn btn-sm btn-primary" onclick="updateSetting('${s.key}')">Save</button></td></tr>`; }); html+=`</tbody></table>`; document.getElementById('settings-list').innerHTML=html; }
+    async function updateSetting(key) { let newVal=document.getElementById(`setting-${key}`).value; await apiCall('/api/settings', { method: 'POST', body: JSON.stringify({ key, value: newVal }) }); alert('Updated'); loadSettings(); }
 
-    // ========== Stock Alerts ==========
-    async function loadStockAlerts() {
-        const products = await apiCall('/api/products');
-        const lowStock = products.filter(p => p.quantity_in_stock <= p.min_stock);
-        let html = `<table class="table table-striped"><thead><tr><th>Product</th><th>Current Stock</th><th>Min Stock</th><th>Unit</th></tr></thead><tbody>`;
-        lowStock.forEach(p => {
-            html += `<tr>
-                <td>${escapeHtml(p.name)}</td>
-                <td class="text-danger">${p.quantity_in_stock}</td>
-                <td>${p.min_stock}</td>
-                <td>${escapeHtml(p.unit)}</td>
-            </tr>`;
-        });
-        html += `</tbody></table>`;
-        document.getElementById('alerts-list').innerHTML = lowStock.length ? html : '<div class="alert alert-success">No low stock items.</div>';
-    }
+    // Stock Alerts
+    async function loadStockAlerts() { let products=await apiCall('/api/products'); let low=products.filter(p=>p.quantity_in_stock<=p.min_stock); let html='<table class="table"><thead><tr><th>Product</th><th>Stock</th><th>Min Stock</th><th>Unit</th></tr></thead><tbody>'; if(low.length===0) html='<div class="alert alert-success">No low stock items.</div>'; else low.forEach(p=>{ html+=`<tr><td>${escapeHtml(p.name)}</td><td class="text-danger">${p.quantity_in_stock}</td><td>${p.min_stock}</td><td>${p.unit}</td></tr>`; }); html+=`</tbody></table>`; document.getElementById('alerts-list').innerHTML=html; }
 
-    // ========== Shift Report ==========
-    async function loadShifts() {
-        const shifts = await apiCall('/api/shifts');
-        let html = `<table class="table table-striped"><thead><tr><th>Cashier</th><th>Start Time</th><th>End Time</th><th>Total Sales (KES)</th><th>Status</th></tr></thead><tbody>`;
-        shifts.forEach(s => {
-            html += `<tr>
-                <td>${escapeHtml(s.cashier_name)}</td>
-                <td>${new Date(s.start_time).toLocaleString()}</td>
-                <td>${s.end_time ? new Date(s.end_time).toLocaleString() : 'Active'}</td>
-                <td>${s.total_sales.toFixed(2)}</td>
-                <td>${s.status}</td>
-            </tr>`;
-        });
-        html += `</tbody></table>`;
-        document.getElementById('shift-list').innerHTML = html;
-    }
-    async function startShift() {
-        await apiCall('/api/shifts/start', { method: 'POST' });
-        alert('Shift started');
-        loadShifts();
-    }
-    async function endShift() {
-        await apiCall('/api/shifts/end', { method: 'POST' });
-        alert('Shift ended');
-        loadShifts();
-    }
+    // Shifts
+    async function loadShifts() { let shifts=await apiCall('/api/shifts'); let html='<table class="table"><thead><tr><th>Cashier</th><th>Start</th><th>End</th><th>Total Sales</th><th>Status</th></tr></thead><tbody>'; if(shifts.length===0) html='<div class="alert alert-info">No shifts yet.</div>'; else shifts.forEach(s=>{ html+=`<tr><td>${escapeHtml(s.cashier_name)}</td><td>${new Date(s.start_time).toLocaleString()}</td><td>${s.end_time?new Date(s.end_time).toLocaleString():'Active'}</td><td>KES ${s.total_sales.toFixed(2)}</td><td>${s.status}</td></tr>`; }); html+=`</tbody></table>`; document.getElementById('shift-list').innerHTML=html; }
+    async function startShift() { await apiCall('/api/shifts/start',{method:'POST'}); alert('Shift started'); loadShifts(); }
+    async function endShift() { await apiCall('/api/shifts/end',{method:'POST'}); alert('Shift ended'); loadShifts(); }
 
-    // ========== Backup ==========
-    async function createBackup() {
-        try {
-            const res = await apiCall('/api/backup', { method: 'POST' });
-            document.getElementById('backup-message').innerHTML = `<div class="alert alert-success">${res.message}</div>`;
-        } catch (error) {
-            document.getElementById('backup-message').innerHTML = `<div class="alert alert-danger">Backup failed: ${error.message}</div>`;
-        }
-    }
+    // Backup
+    async function createBackup() { try{ let res=await apiCall('/api/backup',{method:'POST'}); document.getElementById('backup-message').innerHTML=`<div class="alert alert-success">${res.message}</div>`; } catch(e){ document.getElementById('backup-message').innerHTML=`<div class="alert alert-danger">Backup failed: ${e.message}</div>`; } }
 
-    // ========== Invoice Panel ==========
-    async function loadInvoicePanel() {
-        const summary = await apiCall('/api/invoice_panel/summary');
-        const html = `
-            <div class="col-md-4"><div class="stat-card"><h5>Total Invoices</h5><div class="stat-number">${summary.total_invoices}</div></div></div>
-            <div class="col-md-4"><div class="stat-card"><h5>Quotations</h5><div class="stat-number">${summary.total_quotes}</div></div></div>
-            <div class="col-md-4"><div class="stat-card"><h5>Pending Deliveries</h5><div class="stat-number">${summary.pending_deliveries}</div></div></div>
-        `;
-        document.getElementById('invoice-summary').innerHTML = html;
-    }
+    // Invoice Panel
+    async function loadInvoicePanel() { let sum=await apiCall('/api/invoice_panel/summary'); document.getElementById('invoice-summary').innerHTML=`<div class="col-md-4"><div class="stat-card"><h5>Total Invoices</h5><div class="stat-number">${sum.total_invoices}</div></div></div><div class="col-md-4"><div class="stat-card"><h5>Quotations</h5><div class="stat-number">${sum.total_quotes}</div></div></div><div class="col-md-4"><div class="stat-card"><h5>Pending Deliveries</h5><div class="stat-number">${sum.pending_deliveries}</div></div></div>`; }
 
-    // ========== Receipt Records ==========
-    async function loadReceiptRecords(search = '') {
-        let url = '/api/receipt_records';
-        if (search) url += `?search=${encodeURIComponent(search)}`;
-        const records = await apiCall(url);
-        let html = `<table class="table table-striped"><thead><tr><th>Invoice No</th><th>Customer</th><th>Total (KES)</th><th>Payment Method</th><th>Date</th><th>Action</th></tr></thead><tbody>`;
-        records.forEach(r => {
-            html += `<tr>
-                <td>${escapeHtml(r.invoice_no)}</td>
-                <td>${escapeHtml(r.customer_name || 'Walk-in')}</td>
-                <td>${r.total.toFixed(2)}</td>
-                <td>${escapeHtml(r.payment_method)}</td>
-                <td>${new Date(r.sale_date).toLocaleString()}</td>
-                <td><button class="btn btn-sm btn-info" onclick="viewReceipt('${r.invoice_no}')">View Receipt</button></td>
-            </tr>`;
-        });
-        html += `</tbody></table>`;
-        document.getElementById('receipt-records-list').innerHTML = html;
-    }
-    function searchReceipts() {
-        const searchTerm = document.getElementById('receipt-search').value;
-        loadReceiptRecords(searchTerm);
-    }
-    function viewReceipt(invoiceNo) {
-        // For simplicity, alert – you can implement a modal or redirect to a receipt page
-        alert(`Receipt for ${invoiceNo} – implement print view as needed.`);
-    }
+    // Receipt Records
+    async function loadReceiptRecords(search='') { let url='/api/receipt_records'+(search?`?search=${encodeURIComponent(search)}`:''); let records=await apiCall(url); let html='<table class="table"><thead><tr><th>Invoice No</th><th>Customer</th><th>Total</th><th>Payment</th><th>Date</th><th>Action</th></tr></thead><tbody>'; if(records.length===0) html='<div class="alert alert-info">No receipts found.</div>'; else records.forEach(r=>{ html+=`<tr><td>${r.invoice_no}</td><td>${escapeHtml(r.customer_name||'Walk-in')}</td><td>KES ${r.total.toFixed(2)}</td><td>${r.payment_method}</td><td>${new Date(r.sale_date).toLocaleString()}</td><td><button class="btn btn-sm btn-info" onclick="alert('Receipt details for '+r.invoice_no)">View</button></td></tr>`; }); html+=`</tbody></table>`; document.getElementById('receipt-records-list').innerHTML=html; }
+    function searchReceipts() { loadReceiptRecords(document.getElementById('receipt-search').value); }
 
-    // ========== Section Switcher ==========
+    // Section Switcher
     function showSection(section) {
-        const sections = ['dashboard','products','sales','invoices','reports','inventory',
-                          'suppliers','users','returns','loyalty','expenses','settings',
-                          'stock_alerts','shift_report','backup','invoice_panel','receipt_records'];
-        sections.forEach(s => {
-            const el = document.getElementById(`${s}-section`);
-            if (el) el.style.display = 'none';
-        });
-        const active = document.getElementById(`${section}-section`);
-        if (active) active.style.display = 'block';
-
-        // Load data for the active section
-        if (section === 'dashboard') loadDashboard();
-        if (section === 'products') loadProducts();
-        if (section === 'invoices') loadInvoices();
-        if (section === 'reports') loadSalesReport();
-        if (section === 'inventory') loadInventory();
-        if (section === 'suppliers') loadSuppliers();
-        if (section === 'users') loadUsers();
-        if (section === 'returns') loadReturns();
-        if (section === 'loyalty') loadLoyalty();
-        if (section === 'expenses') loadExpenses();
-        if (section === 'settings') loadSettings();
-        if (section === 'stock_alerts') loadStockAlerts();
-        if (section === 'shift_report') loadShifts();
-        if (section === 'invoice_panel') loadInvoicePanel();
-        if (section === 'receipt_records') loadReceiptRecords();
+        const sections = ['dashboard','products','sales','invoices','reports','inventory','suppliers','users','returns','loyalty','expenses','settings','stock_alerts','shift_report','backup','invoice_panel','receipt_records'];
+        sections.forEach(s => { let el = document.getElementById(`${s}-section`); if(el) el.style.display = 'none'; });
+        let active = document.getElementById(`${section}-section`);
+        if(active) active.style.display = 'block';
+        if(section === 'dashboard') loadDashboard();
+        if(section === 'products') loadProducts();
+        if(section === 'sales') { loadProductGrid(); }
+        if(section === 'invoices') loadInvoices();
+        if(section === 'reports') loadSalesReport();
+        if(section === 'inventory') loadInventory();
+        if(section === 'suppliers') loadSuppliers();
+        if(section === 'users') loadUsers();
+        if(section === 'returns') loadReturns();
+        if(section === 'loyalty') loadLoyalty();
+        if(section === 'expenses') loadExpenses();
+        if(section === 'settings') loadSettings();
+        if(section === 'stock_alerts') loadStockAlerts();
+        if(section === 'shift_report') loadShifts();
+        if(section === 'invoice_panel') loadInvoicePanel();
+        if(section === 'receipt_records') loadReceiptRecords();
     }
 </script>
 </body>
