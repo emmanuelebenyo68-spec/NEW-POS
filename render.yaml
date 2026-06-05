@@ -1,4 +1,3 @@
-M6cat render.yaml
 services:
   - type: web
     name: manuel-supermakert
