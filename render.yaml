@@ -1,7 +1,7 @@
 services:
   - type: web
     name: manuel-supermakert
-    runtime: python3
+    runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn BACKEND.pos_api:app
     envVars:
