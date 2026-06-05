@@ -1,7 +1,8 @@
+M6cat render.yaml
 services:
   - type: web
     name: manuel-supermakert
-    runtime: python
+    runtime: python3
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn BACKEND.pos_api:app
     envVars:
