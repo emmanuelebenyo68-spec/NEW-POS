@@ -449,13 +449,15 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    // ORIGINAL JAVASCRIPT (unchanged – prompts for MPESA/Pesa Pal still work)
+    // ======================== ORIGINAL JAVASCRIPT (MODIFIED ONLY TO ADD NEW FEATURES) ========================
     let authToken = localStorage.getItem('pos_token');
     let cart = [];
     let allProducts = [];
     let receiptModal = null;
     let currentUser = null;
     let activeShift = null;
+    // NEW: Register number (can be changed as needed)
+    const registerNumber = "001";
 
     window.onload = function() {
         if (!authToken) {
@@ -810,6 +812,7 @@
         }
     }
 
+    // ======================== MODIFIED: completeSale with cash tendered ========================
     async function completeSale() {
         if(!activeShift) {
             alert('You cannot complete a sale without an active shift. Please start a shift first.');
@@ -819,14 +822,28 @@
         if(cart.length===0) return alert('Cart empty');
         const paymentMethod = document.getElementById('payment-method').value;
         let transactionCode = null;
-        // PROMPTS WORK EXACTLY AS BEFORE
-        if (paymentMethod === 'MPESA') {
+        let cashTendered = null;
+        let changeAmount = null;
+
+        // NEW: If payment method is Cash, ask for tendered amount
+        if (paymentMethod === 'Cash') {
+            const total = parseFloat(document.getElementById('cart-total').innerText);
+            let tendered = prompt(`Total amount: KES ${total.toFixed(2)}\nEnter cash tendered:`, total.toFixed(2));
+            if (tendered === null) return;
+            cashTendered = parseFloat(tendered);
+            if (isNaN(cashTendered) || cashTendered < total) {
+                alert('Invalid tendered amount. Must be a number greater than or equal to total.');
+                return;
+            }
+            changeAmount = cashTendered - total;
+        } else if (paymentMethod === 'MPESA') {
             transactionCode = prompt('Enter M-Pesa transaction code (STK Push confirmation):');
             if (!transactionCode) return alert('Transaction code required for M-Pesa payment');
         } else if (paymentMethod === 'Pesa Pal') {
             transactionCode = prompt('Enter Pesa Pal transaction reference:');
             if (!transactionCode) return alert('Reference code required for Pesa Pal payment');
         }
+
         const subtotal=parseFloat(document.getElementById('cart-subtotal').innerText), discount=parseFloat(document.getElementById('discount').value)||0;
         const taxable=subtotal-discount, tax=taxable*0.16, total=taxable+tax;
         const saleData = {
@@ -838,34 +855,50 @@
         };
         try {
             const res = await apiCall('/api/invoices',{method:'POST',body:JSON.stringify(saleData)});
-            showReceipt(res, transactionCode);
+            // Pass extra receipt data
+            showReceipt(res, transactionCode, cashTendered, changeAmount);
             cart=[]; updateCartUI(); loadDashboard();
             document.getElementById('customer-name').value = '';
             document.getElementById('customer-phone').value = '';
             document.getElementById('discount').value = 0;
-            selectPaymentMethod('Cash'); // reset to Cash
+            selectPaymentMethod('Cash');
             updateCartTotal();
             await checkActiveShift();
             updateShiftWarning();
         } catch(e) { alert('Sale failed: '+e.message); }
     }
 
-    function showReceipt(invoice, transactionCode = null) {
-        const date = new Date(invoice.sale_date).toLocaleString();
+    // ======================== MODIFIED: showReceipt with new fields ========================
+    function showReceipt(invoice, transactionCode = null, cashTendered = null, changeAmount = null) {
+        const date = new Date(invoice.sale_date);
+        const formattedDate = date.toLocaleDateString('en-GB'); // DD/MM/YYYY
+        const formattedTime = date.toLocaleTimeString('en-GB'); // HH:MM:SS
+        const cashierName = invoice.cashier_display_name || invoice.cashier || 'Cashier';
         let itemsHtml = '';
         invoice.items.forEach(item => {
             itemsHtml += `<tr><td>${escapeHtml(item.product_name)}</td><td>${item.quantity}</td><td>KES ${item.unit_price.toFixed(2)}</td><td>KES ${item.total.toFixed(2)}</td></tr>`;
         });
-        const cashierName = invoice.cashier_display_name || invoice.cashier || 'Cashier';
         let paymentLine = `<div>Payment: ${invoice.payment_method}`;
         if (transactionCode) paymentLine += ` (Code: ${transactionCode})`;
         paymentLine += `</div>`;
+
+        // NEW: Add cash tendered and change if applicable
+        let cashLines = '';
+        if (cashTendered !== null && changeAmount !== null) {
+            cashLines = `
+                <div>Cash Tendered: KES ${cashTendered.toFixed(2)}</div>
+                <div>Change: KES ${changeAmount.toFixed(2)}</div>
+            `;
+        }
+
         const receiptHtml = `
             <div class="store-header">
                 <div class="store-name">🛒 MANUEL SUPERMARKET</div>
                 <div class="store-tagline">Quality & Service Since 2024</div>
                 <div>Nairobi, Kenya | Tel: 0712345678</div>
-                <div>${date} | Invoice: ${invoice.invoice_no}</div>
+                <div>${formattedDate} | ${formattedTime}</div>
+                <div>Invoice: ${invoice.invoice_no}</div>
+                <div>Cashier Reg #: ${registerNumber} | Cashier: ${cashierName}</div>
             </div>
             <table class="table table-sm">
                 <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
@@ -876,9 +909,9 @@
             <div>Discount: KES ${invoice.discount.toFixed(2)}</div>
             <div>Tax (16%): KES ${invoice.tax.toFixed(2)}</div>
             <div class="total-row"><strong>Total: KES ${invoice.total.toFixed(2)}</strong></div>
+            ${cashLines}
             ${paymentLine}
             <div>Customer: ${invoice.customer_name || 'Walk-in'} ${invoice.customer_phone ? '('+invoice.customer_phone+')' : ''}</div>
-            <div>Cashier: ${cashierName}</div>
             <hr>
             <div style="text-align:center; font-size:12px;">Thank you for shopping at MANUEL SUPERMARKET!</div>
         `;
@@ -891,7 +924,7 @@
         const invoices = await apiCall('/api/invoices');
         let html = `<table class="table"><thead><tr><th>Invoice No</th><th>Customer</th><th>Total</th><th>Date</th><th>Cashier</th></tr></thead><tbody>`;
         invoices.forEach(inv=>{ html+=`<tr><td>${inv.invoice_no}</td><td>${escapeHtml(inv.customer_name||'Walk-in')}</td><td>KES ${inv.total.toFixed(2)}</td><td>${new Date(inv.sale_date).toLocaleString()}</td><td>${escapeHtml(inv.cashier_display_name || inv.cashier)}</td></tr>`; });
-        html+=`</tbody></table>`;
+        html+=`</tbody></tr>`;
         document.getElementById('invoices-list').innerHTML = html || '<div class="alert alert-info">No invoices yet.</div>';
     }
 
@@ -899,7 +932,7 @@
     async function loadSalesReport() {
         const report = await apiCall('/api/reports/sales');
         let html = `<table class="table"><thead><tr><th>Date</th><th>Transactions</th><th>Total Sales</th></tr></thead><tbody>`;
-        report.forEach(r=>{ html+=`<tr><td>${r.date}</td><td>${r.transactions}</td><td>KES ${r.total.toFixed(2)}</td></tr>`; });
+        report.forEach(r=>{ html+=`</td><td>${r.date}</td><td>${r.transactions}</td><td>KES ${r.total.toFixed(2)}</td></tr>`; });
         html+=`</tbody></table>`;
         document.getElementById('sales-report').innerHTML = html || '<div class="alert alert-info">No sales data.</div>';
     }
@@ -909,7 +942,7 @@
         const products = await apiCall('/api/products');
         let html = `<table class="table table-striped"><thead><tr><th>Name</th><th>Price</th><th>Stock</th><th>Min Stock</th><th>Unit</th><th>Supplier</th></tr></thead><tbody>`;
         products.forEach(p=>{ html+=`<tr><td>${escapeHtml(p.name)}</td><td>KES ${p.selling_price}</td><td>${p.quantity_in_stock}</td><td>${p.min_stock}</td><td>${escapeHtml(p.unit)}</td><td>${escapeHtml(p.supplier||'')}</td></tr>`; });
-        html+=`</tbody><tr>`;
+        html+=`</tbody></table>`;
         document.getElementById('inventory-list').innerHTML = html || '<div class="alert alert-info">No inventory data.</div>';
     }
 
@@ -1010,7 +1043,7 @@
     async function deleteLoyaltyCustomer(phone) { if(confirm('Remove?')){ await apiCall(`/api/loyalty/${phone}`, { method: 'DELETE' }); loadLoyalty(); } }
 
     // Expenses
-    async function loadExpenses() { let res=await apiCall('/api/expenses'); let html='<table class="table"><thead><tr><th>Category</th><th>Amount</th><th>Description</th><th>Date</th><th>By</th></tr></thead><tbody>'; if(res.length===0) html='<div class="alert alert-info">No expenses recorded.</div>'; else res.forEach(e=>{ html+=`<tr><td>${escapeHtml(e.category)}</td><td>KES ${e.amount.toFixed(2)}</td><td>${escapeHtml(e.description||'')}</td><td>${e.expense_date}</td><td>${escapeHtml(e.user||'')}</td><tr>`; }); html+=`</tbody></table>`; document.getElementById('expenses-list').innerHTML=html; }
+    async function loadExpenses() { let res=await apiCall('/api/expenses'); let html='<table class="table"><thead><tr><th>Category</th><th>Amount</th><th>Description</th><th>Date</th><th>By</th></tr></thead><tbody>'; if(res.length===0) html='<div class="alert alert-info">No expenses recorded.</div>'; else res.forEach(e=>{ html+=`<tr><td>${escapeHtml(e.category)}</td><td>KES ${e.amount.toFixed(2)}</td><td>${escapeHtml(e.description||'')}</td><td>${e.expense_date}</td><td>${escapeHtml(e.user||'')}</td></tr>`; }); html+=`</tbody><tr>`; document.getElementById('expenses-list').innerHTML=html; }
     function showAddExpenseForm() { let cat=prompt('Category:'), amt=parseFloat(prompt('Amount:')); if(cat&&!isNaN(amt)) addExpense(cat,amt,prompt('Description:'),null); }
     async function addExpense(category, amount, description, expenseDate) { await apiCall('/api/expenses', { method: 'POST', body: JSON.stringify({ category, amount, description, expense_date: expenseDate || null }) }); loadExpenses(); }
 
@@ -1019,10 +1052,10 @@
     async function updateSetting(key) { let newVal=document.getElementById(`setting-${key}`).value; await apiCall('/api/settings', { method: 'POST', body: JSON.stringify({ key, value: newVal }) }); alert('Updated'); loadSettings(); }
 
     // Stock Alerts
-    async function loadStockAlerts() { let products=await apiCall('/api/products'); let low=products.filter(p=>p.quantity_in_stock<=p.min_stock); let html='<table class="table"><thead><tr><th>Product</th><th>Stock</th><th>Min Stock</th><th>Unit</th></tr></thead><tbody>'; if(low.length===0) html='<div class="alert alert-success">No low stock items.</div>'; else low.forEach(p=>{ html+=`<tr><td>${escapeHtml(p.name)}</td><td class="text-danger">${p.quantity_in_stock}</td><td>${p.min_stock}</td><td>${p.unit}</td>`; }); html+=`</tbody></table>`; document.getElementById('alerts-list').innerHTML=html; }
+    async function loadStockAlerts() { let products=await apiCall('/api/products'); let low=products.filter(p=>p.quantity_in_stock<=p.min_stock); let html='<table class="table"><thead><tr><th>Product</th><th>Stock</th><th>Min Stock</th><th>Unit</th></tr></thead><tbody>'; if(low.length===0) html='<div class="alert alert-success">No low stock items.</div>'; else low.forEach(p=>{ html+=`<tr><td>${escapeHtml(p.name)}</td><td class="text-danger">${p.quantity_in_stock}</td><td>${p.min_stock}</td><td>${p.unit}</td>`; }); html+=`</tbody><tr>`; document.getElementById('alerts-list').innerHTML=html; }
 
     // Shifts
-    async function loadShifts() { let shifts=await apiCall('/api/shifts'); let html='<table class="table"><thead><tr><th>Cashier</th><th>Display Name</th><th>Start</th><th>End</th><th>Total Sales</th><th>Status</th></table></thead><tbody>'; if(shifts.length===0) html='<div class="alert alert-info">No shifts yet.</div>'; else shifts.forEach(s=>{ html+=`<tr><td>${escapeHtml(s.cashier_name)}</td><td>${escapeHtml(s.shift_display_name || '-')}</td><td>${new Date(s.start_time).toLocaleString()}</td><td>${s.end_time?new Date(s.end_time).toLocaleString():'Active'}</td><td>KES ${s.total_sales.toFixed(2)}</td><td>${s.status}</td>`; }); html+=`</tbody></table>`; document.getElementById('shift-list').innerHTML=html; }
+    async function loadShifts() { let shifts=await apiCall('/api/shifts'); let html='<table class="table"><thead><tr><th>Cashier</th><th>Display Name</th><th>Start</th><th>End</th><th>Total Sales</th><th>Status</th></tr></thead><tbody>'; if(shifts.length===0) html='<div class="alert alert-info">No shifts yet.</div>'; else shifts.forEach(s=>{ html+=`<tr><td>${escapeHtml(s.cashier_name)}</td><td>${escapeHtml(s.shift_display_name || '-')}</td><td>${new Date(s.start_time).toLocaleString()}</td><td>${s.end_time?new Date(s.end_time).toLocaleString():'Active'}</td><td>KES ${s.total_sales.toFixed(2)}</td><td>${s.status}</td>`; }); html+=`</tbody></table>`; document.getElementById('shift-list').innerHTML=html; }
     async function startShiftWithName() {
         const displayName = prompt('Enter your name to appear on receipts for this shift:');
         if (!displayName) {
@@ -1047,7 +1080,7 @@
     async function loadInvoicePanel() { let sum=await apiCall('/api/invoice_panel/summary'); document.getElementById('invoice-summary').innerHTML=`<div class="col-md-4"><div class="stat-card"><h5>Total Invoices</h5><div class="stat-number">${sum.total_invoices}</div></div></div><div class="col-md-4"><div class="stat-card"><h5>Quotations</h5><div class="stat-number">${sum.total_quotes}</div></div></div><div class="col-md-4"><div class="stat-card"><h5>Pending Deliveries</h5><div class="stat-number">${sum.pending_deliveries}</div></div></div>`; }
 
     // Receipt Records
-    async function loadReceiptRecords(search='') { let url='/api/receipt_records'+(search?`?search=${encodeURIComponent(search)}`:''); let records=await apiCall(url); let html='<table class="table"><thead><tr><th>Invoice No</th><th>Customer</th><th>Total</th><th>Payment</th><th>Date</th><th>Action</th></tr></thead><tbody>'; if(records.length===0) html='<div class="alert alert-info">No receipts found.</div>'; else records.forEach(r=>{ html+=`<tr><td>${r.invoice_no}</td><td>${escapeHtml(r.customer_name||'Walk-in')}</td><td>KES ${r.total.toFixed(2)}</td><td>${r.payment_method}</td><td>${new Date(r.sale_date).toLocaleString()}</td><td><button class="btn btn-sm btn-info" onclick="alert('Receipt details for '+r.invoice_no)">View</button></td>`; }); html+=`</tbody></table>`; document.getElementById('receipt-records-list').innerHTML=html; }
+    async function loadReceiptRecords(search='') { let url='/api/receipt_records'+(search?`?search=${encodeURIComponent(search)}`:''); let records=await apiCall(url); let html='<table class="table"><thead><tr><th>Invoice No</th><th>Customer</th><th>Total</th><th>Payment</th><th>Date</th><th>Action</th></tr></thead><tbody>'; if(records.length===0) html='<div class="alert alert-info">No receipts found.</div>'; else records.forEach(r=>{ html+=`</td><td>${r.invoice_no}</td><td>${escapeHtml(r.customer_name||'Walk-in')}</td><td>KES ${r.total.toFixed(2)}</td><td>${r.payment_method}</td><td>${new Date(r.sale_date).toLocaleString()}</td><td><button class="btn btn-sm btn-info" onclick="alert('Receipt details for '+r.invoice_no)">View</button></td></tr>`; }); html+=`</tbody></table>`; document.getElementById('receipt-records-list').innerHTML=html; }
     function searchReceipts() { loadReceiptRecords(document.getElementById('receipt-search').value); }
 
     // Section Switcher
@@ -1167,7 +1200,7 @@ async function loadFastMoving() {
                     <td><strong>${p.avg_daily_sales}</strong> / day</td>
                 </tr>`;
     });
-    html += `</tbody></tr>`;
+    html += `</tbody><tr>`;
     document.getElementById('fast-report-container').innerHTML = html;
 }
 
@@ -1453,7 +1486,20 @@ function filterAuditLogs() {
 
         const paymentMethod = document.getElementById('payment-method').value;
         let transactionCode = null;
-        if (paymentMethod === 'MPESA') {
+        let cashTendered = null;
+        let changeAmount = null;
+
+        if (paymentMethod === 'Cash') {
+            const total = parseFloat(document.getElementById('cart-total').innerText);
+            let tendered = prompt(`Total amount: KES ${total.toFixed(2)}\nEnter cash tendered:`, total.toFixed(2));
+            if (tendered === null) return;
+            cashTendered = parseFloat(tendered);
+            if (isNaN(cashTendered) || cashTendered < total) {
+                alert('Invalid tendered amount. Must be a number greater than or equal to total.');
+                return;
+            }
+            changeAmount = cashTendered - total;
+        } else if (paymentMethod === 'MPESA') {
             transactionCode = prompt('Enter M-Pesa transaction code (STK Push confirmation):');
             if (!transactionCode) return alert('Transaction code required for M-Pesa payment');
         } else if (paymentMethod === 'Pesa Pal') {
@@ -1477,7 +1523,9 @@ function filterAuditLogs() {
 
         const online = await isReallyOnline();
         if (!online) {
-            const queuedId = await queueTransaction('sale', saleData);
+            // Save the extra data for offline sync (we'll store cashTendered/change in queue as metadata)
+            const queuedData = { ...saleData, cash_tendered: cashTendered, change: changeAmount, transaction_code: transactionCode };
+            const queuedId = await queueTransaction('sale', queuedData);
             alert(`📡 You are offline. Sale has been queued (ID: ${queuedId}) and will be processed when internet returns.`);
             cart = [];
             updateCartUI();
@@ -1494,7 +1542,8 @@ function filterAuditLogs() {
             await originalCompleteSale();
         } catch (err) {
             if (err.message && err.message.includes('fetch')) {
-                const queuedId = await queueTransaction('sale', saleData);
+                const queuedData = { ...saleData, cash_tendered: cashTendered, change: changeAmount, transaction_code: transactionCode };
+                const queuedId = await queueTransaction('sale', queuedData);
                 alert(`⚠️ Connection lost. Sale has been queued (ID: ${queuedId}) and will be processed later.`);
                 cart = [];
                 updateCartUI();
@@ -1518,6 +1567,7 @@ function filterAuditLogs() {
         const pending = await getPendingTransactions('sale');
         if (pending.length === 0) return;
 
+        // Convert to the format expected by /api/sync/sales (only sale_data field)
         const transactions = pending.map(tx => ({ id: tx.id, sale_data: tx.data }));
         try {
             const response = await fetch('/api/sync/sales', {
