@@ -3,12 +3,13 @@ from datetime import datetime, timedelta
 from functools import wraps
 from uuid import uuid4
 import shutil
+import base64
 
 from flask import Flask, request, jsonify, g, send_from_directory
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from sqlalchemy import func, text
+from sqlalchemy import func, text, cast, Numeric
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 from dotenv import load_dotenv
@@ -22,15 +23,18 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-i
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///pos.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_EXPIRATION_HOURS'] = 24
+app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # 2MB max for images
 
 if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
-    app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://', 'postgresql://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://',
+                                                                                          'postgresql://', 1)
 
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
+
 # ---------------------------
-# Models (extended for shift display name and invoice cashier display name)
+# Models (existing + new ItemImage)
 # ---------------------------
 class User(db.Model):
     __tablename__ = 'users'
@@ -56,6 +60,7 @@ class User(db.Model):
             'created_at': self.created_at.isoformat()
         }
 
+
 class Category(db.Model):
     __tablename__ = 'categories'
     id = db.Column(db.Integer, primary_key=True)
@@ -65,14 +70,15 @@ class Category(db.Model):
     def to_dict(self):
         return {'id': self.id, 'name': self.name, 'description': self.description}
 
+
 class Product(db.Model):
     __tablename__ = 'products'
     id = db.Column(db.Integer, primary_key=True)
     barcode = db.Column(db.String(50), unique=True)
     name = db.Column(db.String(200), nullable=False)
     category_id = db.Column(db.Integer, db.ForeignKey('categories.id'))
-    buying_price = db.Column(db.Numeric(10,2), default=0)
-    selling_price = db.Column(db.Numeric(10,2), nullable=False)
+    buying_price = db.Column(db.Numeric(10, 2), default=0)
+    selling_price = db.Column(db.Numeric(10, 2), nullable=False)
     quantity_in_stock = db.Column(db.Integer, default=0)
     min_stock = db.Column(db.Integer, default=5)
     unit = db.Column(db.String(20), default='pcs')
@@ -97,16 +103,17 @@ class Product(db.Model):
             'created_at': self.created_at.isoformat()
         }
 
+
 class Invoice(db.Model):
     __tablename__ = 'invoices'
     id = db.Column(db.Integer, primary_key=True)
     invoice_no = db.Column(db.String(50), unique=True, nullable=False)
     customer_name = db.Column(db.String(100))
     customer_phone = db.Column(db.String(20))
-    subtotal = db.Column(db.Numeric(10,2), default=0)
-    discount = db.Column(db.Numeric(10,2), default=0)
-    tax = db.Column(db.Numeric(10,2), default=0)
-    total = db.Column(db.Numeric(10,2), nullable=False)
+    subtotal = db.Column(db.Numeric(10, 2), default=0)
+    discount = db.Column(db.Numeric(10, 2), default=0)
+    tax = db.Column(db.Numeric(10, 2), default=0)
+    total = db.Column(db.Numeric(10, 2), nullable=False)
     payment_method = db.Column(db.String(50))
     cashier_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     sale_date = db.Column(db.DateTime, default=datetime.utcnow)
@@ -132,6 +139,7 @@ class Invoice(db.Model):
             'items': [item.to_dict() for item in self.items]
         }
 
+
 class InvoiceItem(db.Model):
     __tablename__ = 'invoice_items'
     id = db.Column(db.Integer, primary_key=True)
@@ -139,8 +147,8 @@ class InvoiceItem(db.Model):
     product_id = db.Column(db.Integer, db.ForeignKey('products.id'))
     product_name = db.Column(db.String(200))
     quantity = db.Column(db.Integer, nullable=False)
-    unit_price = db.Column(db.Numeric(10,2), nullable=False)
-    total = db.Column(db.Numeric(10,2), nullable=False)
+    unit_price = db.Column(db.Numeric(10, 2), nullable=False)
+    total = db.Column(db.Numeric(10, 2), nullable=False)
 
     product = db.relationship('Product')
 
@@ -154,6 +162,7 @@ class InvoiceItem(db.Model):
             'total': float(self.total)
         }
 
+
 class StockMovement(db.Model):
     __tablename__ = 'stock_movements'
     id = db.Column(db.Integer, primary_key=True)
@@ -163,6 +172,7 @@ class StockMovement(db.Model):
     reason = db.Column(db.String(200))
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 
 class Supplier(db.Model):
     __tablename__ = 'suppliers'
@@ -185,6 +195,7 @@ class Supplier(db.Model):
             'created_at': self.created_at.isoformat()
         }
 
+
 class Return(db.Model):
     __tablename__ = 'returns'
     id = db.Column(db.Integer, primary_key=True)
@@ -193,7 +204,7 @@ class Return(db.Model):
     product_id = db.Column(db.Integer, db.ForeignKey('products.id'))
     product_name = db.Column(db.String(200))
     quantity = db.Column(db.Integer, nullable=False)
-    refund_amount = db.Column(db.Numeric(10,2), nullable=False)
+    refund_amount = db.Column(db.Numeric(10, 2), nullable=False)
     reason = db.Column(db.String(200))
     cashier_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     return_date = db.Column(db.DateTime, default=datetime.utcnow)
@@ -214,12 +225,13 @@ class Return(db.Model):
             'return_date': self.return_date.isoformat()
         }
 
+
 class LoyaltyCustomer(db.Model):
     __tablename__ = 'loyalty_customers'
     phone = db.Column(db.String(20), primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     points = db.Column(db.Integer, default=0)
-    total_spent = db.Column(db.Numeric(10,2), default=0)
+    total_spent = db.Column(db.Numeric(10, 2), default=0)
     tier = db.Column(db.String(20), default='Bronze')
     joined_date = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -233,11 +245,12 @@ class LoyaltyCustomer(db.Model):
             'joined_date': self.joined_date.isoformat()
         }
 
+
 class Expense(db.Model):
     __tablename__ = 'expenses'
     id = db.Column(db.Integer, primary_key=True)
     category = db.Column(db.String(100), nullable=False)
-    amount = db.Column(db.Numeric(10,2), nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
     description = db.Column(db.Text)
     expense_date = db.Column(db.Date, default=datetime.utcnow().date)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
@@ -256,6 +269,7 @@ class Expense(db.Model):
             'created_at': self.created_at.isoformat()
         }
 
+
 class Setting(db.Model):
     __tablename__ = 'settings'
     key = db.Column(db.String(100), primary_key=True)
@@ -264,13 +278,14 @@ class Setting(db.Model):
     def to_dict(self):
         return {'key': self.key, 'value': self.value}
 
+
 class Shift(db.Model):
     __tablename__ = 'shifts'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     start_time = db.Column(db.DateTime, default=datetime.utcnow)
     end_time = db.Column(db.DateTime, nullable=True)
-    total_sales = db.Column(db.Numeric(10,2), default=0)
+    total_sales = db.Column(db.Numeric(10, 2), default=0)
     status = db.Column(db.String(20), default='active')
     shift_display_name = db.Column(db.String(100), nullable=True)
 
@@ -288,9 +303,7 @@ class Shift(db.Model):
             'status': self.status
         }
 
-# ---------------------------
-# NEW: AuditLog Model
-# ---------------------------
+
 class AuditLog(db.Model):
     __tablename__ = 'audit_logs'
     id = db.Column(db.Integer, primary_key=True)
@@ -312,8 +325,28 @@ class AuditLog(db.Model):
             'created_at': self.created_at.isoformat()
         }
 
+
+# NEW: ItemImage model for the image gallery
+class ItemImage(db.Model):
+    __tablename__ = 'item_images'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    price = db.Column(db.Numeric(10, 2), nullable=False)
+    image_data = db.Column(db.Text, nullable=False)  # base64 encoded image
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'price': float(self.price),
+            'image_data': self.image_data,
+            'created_at': self.created_at.isoformat()
+        }
+
+
 # ---------------------------
-# Authentication helper
+# Authentication helpers (unchanged)
 # ---------------------------
 def token_required(f):
     @wraps(f)
@@ -331,7 +364,9 @@ def token_required(f):
         except Exception:
             return jsonify({'error': 'Invalid token'}), 401
         return f(*args, **kwargs)
+
     return decorated
+
 
 def role_required(allowed_roles):
     def decorator(f):
@@ -340,12 +375,12 @@ def role_required(allowed_roles):
             if g.current_user.role not in allowed_roles:
                 return jsonify({'error': 'Permission denied'}), 403
             return f(*args, **kwargs)
+
         return decorated
+
     return decorator
 
-# ---------------------------
-# Audit Logging Helper
-# ---------------------------
+
 def log_action(user_id, action, details, ip=None):
     if ip is None and request:
         ip = request.remote_addr
@@ -353,12 +388,14 @@ def log_action(user_id, action, details, ip=None):
     db.session.add(log)
     db.session.commit()
 
+
 # ---------------------------
 # API Endpoints
 # ---------------------------
 @app.route('/api/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok', 'timestamp': datetime.utcnow().isoformat()})
+
 
 @app.route('/api/users/register', methods=['POST'])
 def register():
@@ -373,9 +410,9 @@ def register():
     user.set_password(data['password'])
     db.session.add(user)
     db.session.commit()
-    # Log user creation
     log_action(user.id, 'user_create', f"User {user.username} ({user.full_name}) created")
     return jsonify(user.to_dict()), 201
+
 
 @app.route('/api/users/login', methods=['POST'])
 def login():
@@ -388,9 +425,9 @@ def login():
         app.config['SECRET_KEY'],
         algorithm='HS256'
     )
-    # Log login
     log_action(user.id, 'login', f"User {user.username} logged in from IP {request.remote_addr}")
     return jsonify({'token': token, 'user': user.to_dict()})
+
 
 @app.route('/api/users', methods=['GET'])
 @token_required
@@ -398,6 +435,7 @@ def login():
 def get_users():
     users = User.query.all()
     return jsonify([u.to_dict() for u in users])
+
 
 @app.route('/api/users/<int:user_id>', methods=['DELETE'])
 @token_required
@@ -410,11 +448,13 @@ def delete_user(user_id):
     db.session.commit()
     return jsonify({'message': 'User deleted'}), 200
 
+
 @app.route('/api/products', methods=['GET'])
 @token_required
 def get_products():
     products = Product.query.all()
     return jsonify([p.to_dict() for p in products])
+
 
 @app.route('/api/products', methods=['POST'])
 @token_required
@@ -435,8 +475,10 @@ def create_product():
     )
     db.session.add(product)
     db.session.commit()
-    log_action(g.current_user.id, 'product_create', f"Product {product.name} (ID {product.id}) selling price {product.selling_price}")
+    log_action(g.current_user.id, 'product_create',
+               f"Product {product.name} (ID {product.id}) buying {product.buying_price} selling {product.selling_price}")
     return jsonify(product.to_dict()), 201
+
 
 @app.route('/api/products/<int:product_id>', methods=['PUT'])
 @token_required
@@ -457,6 +499,7 @@ def update_product(product_id):
     log_action(g.current_user.id, 'product_update', f"Product ID {product_id} updated")
     return jsonify(product.to_dict())
 
+
 @app.route('/api/products/<int:product_id>', methods=['DELETE'])
 @token_required
 @role_required(['admin', 'manager'])
@@ -466,6 +509,7 @@ def delete_product(product_id):
     db.session.delete(product)
     db.session.commit()
     return jsonify({'message': 'Product deleted'}), 200
+
 
 @app.route('/api/invoices', methods=['POST'])
 @token_required
@@ -523,11 +567,13 @@ def create_invoice():
     log_action(g.current_user.id, 'sale', f"Invoice {invoice_no} total {invoice.total}")
     return jsonify(invoice.to_dict()), 201
 
+
 @app.route('/api/invoices', methods=['GET'])
 @token_required
 def get_invoices():
     invoices = Invoice.query.order_by(Invoice.sale_date.desc()).all()
     return jsonify([inv.to_dict() for inv in invoices])
+
 
 @app.route('/api/reports/dashboard', methods=['GET'])
 @token_required
@@ -536,9 +582,18 @@ def dashboard_stats():
     start_of_today = datetime(today.year, today.month, today.day)
     total_products = Product.query.count()
     low_stock = Product.query.filter(Product.quantity_in_stock <= Product.min_stock).count()
-    today_sales = db.session.query(func.coalesce(func.sum(Invoice.total), 0)).filter(Invoice.sale_date >= start_of_today).scalar()
+    today_sales = db.session.query(func.coalesce(func.sum(Invoice.total), 0)).filter(
+        Invoice.sale_date >= start_of_today).scalar()
     today_transactions = Invoice.query.filter(Invoice.sale_date >= start_of_today).count()
     total_revenue = db.session.query(func.coalesce(func.sum(Invoice.total), 0)).scalar()
+
+    # total cost and total profit
+    total_cost = db.session.query(
+        func.coalesce(func.sum(InvoiceItem.quantity * Product.buying_price), 0)
+    ).join(Product, InvoiceItem.product_id == Product.id).scalar()
+    total_profit = total_revenue - total_cost
+    profit_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else 0
+
     top_products = db.session.query(
         Product.name, func.sum(InvoiceItem.quantity).label('qty')
     ).join(InvoiceItem, Product.id == InvoiceItem.product_id).group_by(Product.id).order_by(text('qty DESC')).limit(5).all()
@@ -549,8 +604,12 @@ def dashboard_stats():
         'today_sales': float(today_sales),
         'today_transactions': today_transactions,
         'total_revenue': float(total_revenue),
+        'total_cost': float(total_cost),
+        'total_profit': float(total_profit),
+        'profit_margin': round(float(profit_margin), 2),
         'top_products': top_products_list
     })
+
 
 @app.route('/api/reports/sales', methods=['GET'])
 @token_required
@@ -567,11 +626,20 @@ def sales_report():
     if to_date:
         query = query.filter(Invoice.sale_date <= to_date)
     results = query.all()
-    return jsonify([{
-        'date': r.date.isoformat(),
-        'transactions': r.transactions,
-        'total': float(r.total)
-    } for r in results])
+    report = []
+    for r in results:
+        # Convert date safely (SQLite returns string, PostgreSQL returns date)
+        if hasattr(r.date, 'isoformat'):
+            date_str = r.date.isoformat()
+        else:
+            date_str = str(r.date)
+        report.append({
+            'date': date_str,
+            'transactions': r.transactions,
+            'total': float(r.total)
+        })
+    return jsonify(report)
+
 
 @app.route('/api/reports/inventory', methods=['GET'])
 @token_required
@@ -585,12 +653,14 @@ def inventory_report():
         'total_value': float(p.quantity_in_stock * p.selling_price)
     } for p in products])
 
-# ---------- Suppliers (only admin can modify) ----------
+
+# ---------- Suppliers (unchanged) ----------
 @app.route('/api/suppliers', methods=['GET'])
 @token_required
 def get_suppliers():
     suppliers = Supplier.query.all()
     return jsonify([s.to_dict() for s in suppliers])
+
 
 @app.route('/api/suppliers', methods=['POST'])
 @token_required
@@ -608,6 +678,7 @@ def create_supplier():
     db.session.commit()
     return jsonify(supplier.to_dict()), 201
 
+
 @app.route('/api/suppliers/<int:supplier_id>', methods=['PUT'])
 @token_required
 @role_required(['admin'])
@@ -622,6 +693,7 @@ def update_supplier(supplier_id):
     db.session.commit()
     return jsonify(supplier.to_dict())
 
+
 @app.route('/api/suppliers/<int:supplier_id>', methods=['DELETE'])
 @token_required
 @role_required(['admin'])
@@ -631,12 +703,14 @@ def delete_supplier(supplier_id):
     db.session.commit()
     return jsonify({'message': 'Supplier deleted'}), 200
 
-# ---------- Returns ----------
+
+# ---------- Returns (unchanged) ----------
 @app.route('/api/returns', methods=['GET'])
 @token_required
 def get_returns():
     returns = Return.query.order_by(Return.return_date.desc()).all()
     return jsonify([r.to_dict() for r in returns])
+
 
 @app.route('/api/returns', methods=['POST'])
 @token_required
@@ -666,15 +740,18 @@ def create_return():
         db.session.add(movement)
     db.session.add(ret)
     db.session.commit()
-    log_action(g.current_user.id, 'return', f"Return {return_inv} for invoice {data['original_invoice']}, product {data['product_name']}, qty {data['quantity']}")
+    log_action(g.current_user.id, 'return',
+               f"Return {return_inv} for invoice {data['original_invoice']}, product {data['product_name']}, qty {data['quantity']}")
     return jsonify(ret.to_dict()), 201
 
-# ---------- Loyalty (only admin delete) ----------
+
+# ---------- Loyalty (unchanged) ----------
 @app.route('/api/loyalty', methods=['GET'])
 @token_required
 def get_loyalty():
     customers = LoyaltyCustomer.query.order_by(LoyaltyCustomer.points.desc()).all()
     return jsonify([c.to_dict() for c in customers])
+
 
 @app.route('/api/loyalty', methods=['POST'])
 @token_required
@@ -692,6 +769,7 @@ def add_loyalty_customer():
     db.session.commit()
     return jsonify(customer.to_dict()), 201
 
+
 @app.route('/api/loyalty/<phone>', methods=['DELETE'])
 @token_required
 @role_required(['admin'])
@@ -701,12 +779,14 @@ def delete_loyalty(phone):
     db.session.commit()
     return jsonify({'message': 'Customer removed'}), 200
 
-# ---------- Expenses (only admin and manager can add, but only admin delete? Keep as is) ----------
+
+# ---------- Expenses (unchanged) ----------
 @app.route('/api/expenses', methods=['GET'])
 @token_required
 def get_expenses():
     expenses = Expense.query.order_by(Expense.expense_date.desc()).all()
     return jsonify([e.to_dict() for e in expenses])
+
 
 @app.route('/api/expenses', methods=['POST'])
 @token_required
@@ -717,20 +797,23 @@ def add_expense():
         category=data['category'],
         amount=data['amount'],
         description=data.get('description'),
-        expense_date=datetime.strptime(data['expense_date'], '%Y-%m-%d').date() if data.get('expense_date') else datetime.utcnow().date(),
+        expense_date=datetime.strptime(data['expense_date'], '%Y-%m-%d').date() if data.get(
+            'expense_date') else datetime.utcnow().date(),
         user_id=g.current_user.id
     )
     db.session.add(expense)
     db.session.commit()
     return jsonify(expense.to_dict()), 201
 
-# ---------- Settings (only admin) ----------
+
+# ---------- Settings (unchanged) ----------
 @app.route('/api/settings', methods=['GET'])
 @token_required
 @role_required(['admin'])
 def get_settings():
     settings = Setting.query.all()
     return jsonify([s.to_dict() for s in settings])
+
 
 @app.route('/api/settings', methods=['POST'])
 @token_required
@@ -746,12 +829,14 @@ def update_setting():
     db.session.commit()
     return jsonify(setting.to_dict())
 
-# ---------- Shifts (modified to accept display name on start) ----------
+
+# ---------- Shifts (unchanged) ----------
 @app.route('/api/shifts', methods=['GET'])
 @token_required
 def get_shifts():
     shifts = Shift.query.order_by(Shift.start_time.desc()).all()
     return jsonify([s.to_dict() for s in shifts])
+
 
 @app.route('/api/shifts/start', methods=['POST'])
 @token_required
@@ -773,6 +858,7 @@ def start_shift():
     log_action(g.current_user.id, 'shift_start', f"Shift ID {shift.id} display name '{shift.shift_display_name}'")
     return jsonify(shift.to_dict()), 201
 
+
 @app.route('/api/shifts/end', methods=['POST'])
 @token_required
 def end_shift():
@@ -791,7 +877,8 @@ def end_shift():
     log_action(g.current_user.id, 'shift_end', f"Shift ID {shift.id} total sales {total}")
     return jsonify(shift.to_dict())
 
-# ---------- Backup ----------
+
+# ---------- Backup (unchanged) ----------
 @app.route('/api/backup', methods=['POST'])
 @token_required
 @role_required(['admin'])
@@ -808,7 +895,8 @@ def backup_db():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# ---------- Invoice Panel Summary ----------
+
+# ---------- Invoice Panel Summary (unchanged) ----------
 @app.route('/api/invoice_panel/summary', methods=['GET'])
 @token_required
 def invoice_panel_summary():
@@ -821,7 +909,8 @@ def invoice_panel_summary():
         'pending_deliveries': pending_deliveries
     })
 
-# ---------- Receipt Records ----------
+
+# ---------- Receipt Records (unchanged) ----------
 @app.route('/api/receipt_records', methods=['GET'])
 @token_required
 def receipt_records():
@@ -844,7 +933,8 @@ def receipt_records():
         'sale_date': inv.sale_date.isoformat()
     } for inv in invoices])
 
-# ---------- RESET CREDENTIALS (temporary route) ----------
+
+# ---------- Reset credentials (unchanged) ----------
 @app.route('/reset-credentials')
 def reset_credentials():
     from werkzeug.security import generate_password_hash
@@ -866,6 +956,61 @@ def reset_credentials():
         db.session.commit()
         return "Created new manuel/manuel"
 
+
+# ---------- ITEM IMAGES API (NEW) ----------
+@app.route('/api/item_images', methods=['GET'])
+@token_required
+def get_item_images():
+    images = ItemImage.query.order_by(ItemImage.created_at.desc()).all()
+    return jsonify([img.to_dict() for img in images])
+
+
+@app.route('/api/item_images', methods=['POST'])
+@token_required
+@role_required(['admin', 'manager'])
+def create_item_image():
+    # Expect multipart form data: name, price, image (file)
+    if 'image' not in request.files:
+        return jsonify({'error': 'Image file is required'}), 400
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    name = request.form.get('name')
+    price = request.form.get('price')
+    if not name or not price:
+        return jsonify({'error': 'Name and price are required'}), 400
+    try:
+        price = float(price)
+    except ValueError:
+        return jsonify({'error': 'Invalid price'}), 400
+
+    # Convert image to base64
+    img_data = base64.b64encode(file.read()).decode('utf-8')
+    # Optionally add a data URL prefix for easy rendering
+    img_data_url = f"data:{file.content_type};base64,{img_data}"
+
+    new_image = ItemImage(
+        name=name,
+        price=price,
+        image_data=img_data_url
+    )
+    db.session.add(new_image)
+    db.session.commit()
+    log_action(g.current_user.id, 'item_image_create', f"Added image: {name}")
+    return jsonify(new_image.to_dict()), 201
+
+
+@app.route('/api/item_images/<int:image_id>', methods=['DELETE'])
+@token_required
+@role_required(['admin', 'manager'])
+def delete_item_image(image_id):
+    image = ItemImage.query.get_or_404(image_id)
+    db.session.delete(image)
+    db.session.commit()
+    log_action(g.current_user.id, 'item_image_delete', f"Deleted image ID {image_id}")
+    return jsonify({'message': 'Image deleted'}), 200
+
+
 # ---------------------------
 # Serve Frontend
 # ---------------------------
@@ -873,11 +1018,11 @@ def reset_credentials():
 def serve_frontend():
     return send_from_directory('static', 'index.html')
 
+
 # ---------------------------
-# Add missing columns for existing tables (schema migration)
+# Add missing columns (unchanged)
 # ---------------------------
 def add_missing_columns():
-    """Add shift_display_name to shifts and cashier_display_name to invoices if not exist."""
     with app.app_context():
         inspector = db.inspect(db.engine)
         if 'shifts' in inspector.get_table_names():
@@ -891,8 +1036,9 @@ def add_missing_columns():
                 db.session.execute(text('ALTER TABLE invoices ADD COLUMN cashier_display_name VARCHAR(100)'))
                 db.session.commit()
 
+
 # ---------------------------
-# Seed sample data (ENHANCED – 20+ products)
+# Seed sample data (unchanged)
 # ---------------------------
 def seed_data():
     with app.app_context():
@@ -906,7 +1052,7 @@ def seed_data():
             db.session.commit()
 
         if Category.query.count() == 0:
-            categories = ['Beverages', 'Snacks', 'Dairy', 'Fruits', 'Vegetables', 'Household']
+            categories = ['Beverages', 'Snacks', 'Dairy', 'Fruits', 'Vegetables', 'Household', 'Grains']
             for cat in categories:
                 db.session.add(Category(name=cat))
             db.session.commit()
@@ -918,42 +1064,77 @@ def seed_data():
             cat_fruits = Category.query.filter_by(name='Fruits').first()
             cat_veg = Category.query.filter_by(name='Vegetables').first()
             cat_household = Category.query.filter_by(name='Household').first()
+            cat_grains = Category.query.filter_by(name='Grains').first()
 
             sample_products = [
                 # Beverages
-                {'name': 'Coca Cola 500ml', 'selling_price': 120, 'quantity': 50, 'unit': 'bottle', 'barcode': '123456789012', 'cat': cat_beverages},
-                {'name': 'Pepsi 500ml', 'selling_price': 120, 'quantity': 45, 'unit': 'bottle', 'barcode': '123456789013', 'cat': cat_beverages},
-                {'name': 'Fanta Orange 500ml', 'selling_price': 120, 'quantity': 40, 'unit': 'bottle', 'barcode': '123456789014', 'cat': cat_beverages},
-                {'name': 'Sprite 500ml', 'selling_price': 120, 'quantity': 40, 'unit': 'bottle', 'barcode': '123456789015', 'cat': cat_beverages},
-                {'name': 'Minute Maid Juice 1L', 'selling_price': 200, 'quantity': 30, 'unit': 'carton', 'barcode': '123456789016', 'cat': cat_beverages},
+                {'name': 'Coca Cola 500ml', 'buying_price': 100, 'selling_price': 120, 'quantity': 50, 'unit': 'bottle',
+                 'barcode': '123456789012', 'cat': cat_beverages},
+                {'name': 'Pepsi 500ml', 'buying_price': 100, 'selling_price': 120, 'quantity': 45, 'unit': 'bottle',
+                 'barcode': '123456789013', 'cat': cat_beverages},
+                {'name': 'Fanta Orange 500ml', 'buying_price': 100, 'selling_price': 120, 'quantity': 40,
+                 'unit': 'bottle', 'barcode': '123456789014', 'cat': cat_beverages},
+                {'name': 'Sprite 500ml', 'buying_price': 100, 'selling_price': 120, 'quantity': 40, 'unit': 'bottle',
+                 'barcode': '123456789015', 'cat': cat_beverages},
+                {'name': 'Minute Maid Juice 1L', 'buying_price': 150, 'selling_price': 200, 'quantity': 30,
+                 'unit': 'carton', 'barcode': '123456789016', 'cat': cat_beverages},
                 # Dairy
-                {'name': 'Fresh Milk 1L', 'selling_price': 85, 'quantity': 30, 'unit': 'carton', 'barcode': '234567890123', 'cat': cat_dairy},
-                {'name': 'Yogurt 500ml', 'selling_price': 70, 'quantity': 25, 'unit': 'cup', 'barcode': '234567890124', 'cat': cat_dairy},
-                {'name': 'Cheese Slices 200g', 'selling_price': 250, 'quantity': 20, 'unit': 'pack', 'barcode': '234567890125', 'cat': cat_dairy},
-                {'name': 'Butter 250g', 'selling_price': 180, 'quantity': 30, 'unit': 'pack', 'barcode': '234567890126', 'cat': cat_dairy},
+                {'name': 'Fresh Milk 1L', 'buying_price': 70, 'selling_price': 85, 'quantity': 30, 'unit': 'carton',
+                 'barcode': '234567890123', 'cat': cat_dairy},
+                {'name': 'Yogurt 500ml', 'buying_price': 55, 'selling_price': 70, 'quantity': 25, 'unit': 'cup',
+                 'barcode': '234567890124', 'cat': cat_dairy},
+                {'name': 'Cheese Slices 200g', 'buying_price': 200, 'selling_price': 250, 'quantity': 20,
+                 'unit': 'pack', 'barcode': '234567890125', 'cat': cat_dairy},
+                {'name': 'Butter 250g', 'buying_price': 140, 'selling_price': 180, 'quantity': 30, 'unit': 'pack',
+                 'barcode': '234567890126', 'cat': cat_dairy},
                 # Snacks
-                {'name': 'Potato Chips 80g', 'selling_price': 100, 'quantity': 80, 'unit': 'pack', 'barcode': '345678901234', 'cat': cat_snacks},
-                {'name': 'Chocolate Bar', 'selling_price': 80, 'quantity': 60, 'unit': 'pcs', 'barcode': '345678901235', 'cat': cat_snacks},
-                {'name': 'Biscuits 200g', 'selling_price': 120, 'quantity': 50, 'unit': 'pack', 'barcode': '345678901236', 'cat': cat_snacks},
-                {'name': 'Peanuts 100g', 'selling_price': 60, 'quantity': 70, 'unit': 'pack', 'barcode': '345678901237', 'cat': cat_snacks},
+                {'name': 'Potato Chips 80g', 'buying_price': 80, 'selling_price': 100, 'quantity': 80, 'unit': 'pack',
+                 'barcode': '345678901234', 'cat': cat_snacks},
+                {'name': 'Chocolate Bar', 'buying_price': 60, 'selling_price': 80, 'quantity': 60, 'unit': 'pcs',
+                 'barcode': '345678901235', 'cat': cat_snacks},
+                {'name': 'Biscuits 200g', 'buying_price': 90, 'selling_price': 120, 'quantity': 50, 'unit': 'pack',
+                 'barcode': '345678901236', 'cat': cat_snacks},
+                {'name': 'Peanuts 100g', 'buying_price': 45, 'selling_price': 60, 'quantity': 70, 'unit': 'pack',
+                 'barcode': '345678901237', 'cat': cat_snacks},
                 # Fruits
-                {'name': 'Apple (1kg)', 'selling_price': 300, 'quantity': 40, 'unit': 'kg', 'barcode': '456789012345', 'cat': cat_fruits},
-                {'name': 'Banana (1kg)', 'selling_price': 150, 'quantity': 50, 'unit': 'kg', 'barcode': '456789012346', 'cat': cat_fruits},
-                {'name': 'Orange (1kg)', 'selling_price': 200, 'quantity': 45, 'unit': 'kg', 'barcode': '456789012347', 'cat': cat_fruits},
+                {'name': 'Apple (1kg)', 'buying_price': 250, 'selling_price': 300, 'quantity': 40, 'unit': 'kg',
+                 'barcode': '456789012345', 'cat': cat_fruits},
+                {'name': 'Banana (1kg)', 'buying_price': 120, 'selling_price': 150, 'quantity': 50, 'unit': 'kg',
+                 'barcode': '456789012346', 'cat': cat_fruits},
+                {'name': 'Orange (1kg)', 'buying_price': 160, 'selling_price': 200, 'quantity': 45, 'unit': 'kg',
+                 'barcode': '456789012347', 'cat': cat_fruits},
                 # Vegetables
-                {'name': 'Tomatoes (1kg)', 'selling_price': 120, 'quantity': 30, 'unit': 'kg', 'barcode': '567890123456', 'cat': cat_veg},
-                {'name': 'Onions (1kg)', 'selling_price': 100, 'quantity': 40, 'unit': 'kg', 'barcode': '567890123457', 'cat': cat_veg},
-                {'name': 'Potatoes (1kg)', 'selling_price': 80, 'quantity': 60, 'unit': 'kg', 'barcode': '567890123458', 'cat': cat_veg},
+                {'name': 'Tomatoes (1kg)', 'buying_price': 90, 'selling_price': 120, 'quantity': 30, 'unit': 'kg',
+                 'barcode': '567890123456', 'cat': cat_veg},
+                {'name': 'Onions (1kg)', 'buying_price': 75, 'selling_price': 100, 'quantity': 40, 'unit': 'kg',
+                 'barcode': '567890123457', 'cat': cat_veg},
+                {'name': 'Potatoes (1kg)', 'buying_price': 60, 'selling_price': 80, 'quantity': 60, 'unit': 'kg',
+                 'barcode': '567890123458', 'cat': cat_veg},
                 # Household
-                {'name': 'Laundry Detergent 500g', 'selling_price': 250, 'quantity': 25, 'unit': 'pack', 'barcode': '678901234567', 'cat': cat_household},
-                {'name': 'Dish Soap 500ml', 'selling_price': 180, 'quantity': 35, 'unit': 'bottle', 'barcode': '678901234568', 'cat': cat_household},
-                {'name': 'Toilet Paper 4 rolls', 'selling_price': 220, 'quantity': 40, 'unit': 'pack', 'barcode': '678901234569', 'cat': cat_household},
-                {'name': 'All-Purpose Cleaner 1L', 'selling_price': 300, 'quantity': 20, 'unit': 'bottle', 'barcode': '678901234570', 'cat': cat_household},
-                {'name': 'Sponge Set', 'selling_price': 90, 'quantity': 50, 'unit': 'pack', 'barcode': '678901234571', 'cat': cat_household},
+                {'name': 'Laundry Detergent 500g', 'buying_price': 200, 'selling_price': 250, 'quantity': 25,
+                 'unit': 'pack', 'barcode': '678901234567', 'cat': cat_household},
+                {'name': 'Dish Soap 500ml', 'buying_price': 140, 'selling_price': 180, 'quantity': 35, 'unit': 'bottle',
+                 'barcode': '678901234568', 'cat': cat_household},
+                {'name': 'Toilet Paper 4 rolls', 'buying_price': 180, 'selling_price': 220, 'quantity': 40,
+                 'unit': 'pack', 'barcode': '678901234569', 'cat': cat_household},
+                {'name': 'All-Purpose Cleaner 1L', 'buying_price': 240, 'selling_price': 300, 'quantity': 20,
+                 'unit': 'bottle', 'barcode': '678901234570', 'cat': cat_household},
+                {'name': 'Sponge Set', 'buying_price': 70, 'selling_price': 90, 'quantity': 50, 'unit': 'pack',
+                 'barcode': '678901234571', 'cat': cat_household},
+                # Grains
+                {'name': 'Rice 1kg', 'buying_price': 180, 'selling_price': 220, 'quantity': 80, 'unit': 'kg',
+                 'barcode': '789012345678', 'cat': cat_grains},
+                {'name': 'Sugar 1kg', 'buying_price': 140, 'selling_price': 180, 'quantity': 60, 'unit': 'kg',
+                 'barcode': '789012345679', 'cat': cat_grains},
+                {'name': 'Bread', 'buying_price': 40, 'selling_price': 50, 'quantity': 100, 'unit': 'loaf',
+                 'barcode': '789012345680', 'cat': cat_grains},
+                {'name': 'Millet 1kg', 'buying_price': 160, 'selling_price': 200, 'quantity': 30, 'unit': 'kg',
+                 'barcode': '789012345681', 'cat': cat_grains},
             ]
             for p in sample_products:
                 product = Product(
                     name=p['name'],
+                    buying_price=p['buying_price'],
                     selling_price=p['selling_price'],
                     quantity_in_stock=p['quantity'],
                     unit=p['unit'],
@@ -965,8 +1146,10 @@ def seed_data():
 
         if Supplier.query.count() == 0:
             suppliers = [
-                Supplier(name='ABC Distributors', contact_person='John Doe', phone='0712345678', email='abc@mail.com', address='Nairobi'),
-                Supplier(name='XYZ Wholesalers', contact_person='Jane Smith', phone='0723456789', email='xyz@mail.com', address='Mombasa')
+                Supplier(name='ABC Distributors', contact_person='John Doe', phone='0712345678', email='abc@mail.com',
+                         address='Nairobi'),
+                Supplier(name='XYZ Wholesalers', contact_person='Jane Smith', phone='0723456789', email='xyz@mail.com',
+                         address='Mombasa')
             ]
             db.session.add_all(suppliers)
             db.session.commit()
@@ -976,38 +1159,37 @@ def seed_data():
             db.session.add(cust)
             db.session.commit()
 
+
 # ---------------------------
-# Initialize database on app start (works for both dev and production)
+# Initialize database
 # ---------------------------
 with app.app_context():
     db.create_all()
     add_missing_columns()
     seed_data()
 
-# ========== ADDED FEATURES ==========
 
-# ---------------------------
-# Offline asset serving (local Bootstrap/FontAwesome)
-# ---------------------------
+# ========== ADDED FEATURES ==========
 @app.route('/static/bootstrap/css/bootstrap.min.css')
 def bootstrap_css():
     return send_from_directory('static/bootstrap/css', 'bootstrap.min.css')
+
 
 @app.route('/static/bootstrap/js/bootstrap.bundle.min.js')
 def bootstrap_js():
     return send_from_directory('static/bootstrap/js', 'bootstrap.bundle.min.js')
 
+
 @app.route('/static/fontawesome/css/all.min.css')
 def fontawesome_css():
     return send_from_directory('static/fontawesome/css', 'all.min.css')
+
 
 @app.route('/static/fontawesome/webfonts/<path:filename>')
 def fontawesome_webfonts(filename):
     return send_from_directory('static/fontawesome/webfonts', filename)
 
-# ---------------------------
-# Maintenance endpoint for non-technical staff
-# ---------------------------
+
 @app.route('/api/maintenance/status', methods=['GET'])
 @token_required
 @role_required(['admin', 'manager'])
@@ -1022,31 +1204,23 @@ def maintenance_status():
         'last_backup': 'Use the Backup button in the sidebar to create a manual backup.'
     })
 
-# ---------------------------
-# Advanced Analytics Endpoints (Profit, Fast-moving, Daily Top)
-# ---------------------------
+
 @app.route('/api/reports/profit-analysis', methods=['GET'])
 @token_required
 @role_required(['admin', 'manager'])
 def profit_analysis():
-    """Calculate profit/loss per product based on sold quantities."""
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
     query = db.session.query(
-        Product.id,
-        Product.name,
-        Product.buying_price,
-        Product.selling_price,
+        Product.id, Product.name, Product.buying_price, Product.selling_price,
         func.coalesce(func.sum(InvoiceItem.quantity), 0).label('total_qty'),
         func.coalesce(func.sum(InvoiceItem.total), 0).label('total_revenue')
-    ).outerjoin(InvoiceItem, Product.id == InvoiceItem.product_id)\
-     .outerjoin(Invoice, InvoiceItem.invoice_id == Invoice.id)
-
+    ).outerjoin(InvoiceItem, Product.id == InvoiceItem.product_id) \
+        .outerjoin(Invoice, InvoiceItem.invoice_id == Invoice.id)
     if from_date:
         query = query.filter(Invoice.sale_date >= from_date)
     if to_date:
         query = query.filter(Invoice.sale_date <= to_date)
-
     results = query.group_by(Product.id).all()
     report = []
     for r in results:
@@ -1068,30 +1242,28 @@ def profit_analysis():
         })
     return jsonify(report)
 
+
 @app.route('/api/reports/fast-moving', methods=['GET'])
 @token_required
 @role_required(['admin', 'manager'])
 def fast_moving_products():
-    """Products with highest average daily sales (last 30 days)."""
     days = request.args.get('days', default=30, type=int)
     cutoff = datetime.utcnow() - timedelta(days=days)
     subq = db.session.query(
         InvoiceItem.product_id,
         func.sum(InvoiceItem.quantity).label('total_qty')
-    ).join(Invoice, InvoiceItem.invoice_id == Invoice.id)\
-     .filter(Invoice.sale_date >= cutoff)\
-     .group_by(InvoiceItem.product_id).subquery()
-
+    ).join(Invoice, InvoiceItem.invoice_id == Invoice.id) \
+        .filter(Invoice.sale_date >= cutoff) \
+        .group_by(InvoiceItem.product_id).subquery()
     results = db.session.query(
         Product.id, Product.name, Product.unit,
         func.coalesce(subq.c.total_qty, 0).label('total_qty'),
         func.count(func.distinct(func.date(Invoice.sale_date))).label('days_with_sales')
-    ).outerjoin(subq, Product.id == subq.c.product_id)\
-     .outerjoin(InvoiceItem, Product.id == InvoiceItem.product_id)\
-     .outerjoin(Invoice, InvoiceItem.invoice_id == Invoice.id)\
-     .filter((Invoice.sale_date >= cutoff) | (Invoice.sale_date.is_(None)))\
-     .group_by(Product.id, subq.c.total_qty).all()
-
+    ).outerjoin(subq, Product.id == subq.c.product_id) \
+        .outerjoin(InvoiceItem, Product.id == InvoiceItem.product_id) \
+        .outerjoin(Invoice, InvoiceItem.invoice_id == Invoice.id) \
+        .filter((Invoice.sale_date >= cutoff) | (Invoice.sale_date.is_(None))) \
+        .group_by(Product.id, subq.c.total_qty).all()
     report = []
     for r in results:
         total_qty = int(r.total_qty)
@@ -1108,27 +1280,24 @@ def fast_moving_products():
     report.sort(key=lambda x: x['avg_daily_sales'], reverse=True)
     return jsonify(report[:20])
 
+
 @app.route('/api/reports/daily-top-products', methods=['GET'])
 @token_required
 @role_required(['admin', 'manager'])
 def daily_top_products():
-    """For each day, the product(s) with highest quantity sold."""
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
     daily_sales = db.session.query(
         func.date(Invoice.sale_date).label('sale_date'),
         InvoiceItem.product_id,
         func.sum(InvoiceItem.quantity).label('qty_sold')
-    ).join(Invoice, InvoiceItem.invoice_id == Invoice.id)\
-     .group_by(func.date(Invoice.sale_date), InvoiceItem.product_id)
-
+    ).join(Invoice, InvoiceItem.invoice_id == Invoice.id) \
+        .group_by(func.date(Invoice.sale_date), InvoiceItem.product_id)
     if from_date:
         daily_sales = daily_sales.filter(Invoice.sale_date >= from_date)
     if to_date:
         daily_sales = daily_sales.filter(Invoice.sale_date <= to_date)
-
     daily_sales = daily_sales.subquery()
-
     ranked = db.session.query(
         daily_sales.c.sale_date,
         daily_sales.c.product_id,
@@ -1140,13 +1309,16 @@ def daily_top_products():
             order_by=daily_sales.c.qty_sold.desc()
         ).label('rank')
     ).join(Product, daily_sales.c.product_id == Product.id).subquery()
-
     top_per_day = db.session.query(ranked).filter(ranked.c.rank == 1).order_by(ranked.c.sale_date.desc()).all()
-
     result = []
     for row in top_per_day:
+        # Safe date conversion
+        if hasattr(row.sale_date, 'isoformat'):
+            date_str = row.sale_date.isoformat()
+        else:
+            date_str = str(row.sale_date)
         result.append({
-            'date': row.sale_date.isoformat(),
+            'date': date_str,
             'product_id': row.product_id,
             'product_name': row.name,
             'quantity_sold': row.qty_sold,
@@ -1154,13 +1326,10 @@ def daily_top_products():
         })
     return jsonify(result)
 
-# ---------------------------
-# OFFLINE SYNC ENDPOINTS
-# ---------------------------
+
 @app.route('/api/offline/data', methods=['GET'])
 @token_required
 def get_offline_data():
-    """Export all essential data for offline caching."""
     products = Product.query.all()
     categories = Category.query.all()
     users = User.query.with_entities(User.id, User.username, User.full_name, User.role).all()
@@ -1173,10 +1342,10 @@ def get_offline_data():
         'last_updated': datetime.utcnow().isoformat()
     })
 
+
 @app.route('/api/sync/sales', methods=['POST'])
 @token_required
 def sync_sales():
-    """Process a batch of offline sales transactions."""
     data = request.json
     offline_transactions = data.get('transactions', [])
     results = []
@@ -1187,7 +1356,8 @@ def sync_sales():
                 results.append({'id': tx.get('id'), 'status': 'error', 'message': 'Missing sale_data'})
                 continue
             today = datetime.utcnow().strftime('%Y%m%d')
-            last_inv = Invoice.query.filter(Invoice.invoice_no.like(f'INV-{today}-%')).order_by(Invoice.id.desc()).first()
+            last_inv = Invoice.query.filter(Invoice.invoice_no.like(f'INV-{today}-%')).order_by(
+                Invoice.id.desc()).first()
             seq = int(last_inv.invoice_no.split('-')[-1]) + 1 if last_inv else 1
             invoice_no = f"INV-{today}-{seq:04d}"
             active_shift = Shift.query.filter_by(user_id=g.current_user.id, status='active').first()
@@ -1238,9 +1408,7 @@ def sync_sales():
             results.append({'id': tx.get('id'), 'status': 'error', 'message': str(e)})
     return jsonify({'results': results})
 
-# ---------------------------
-# NEW: Audit Logs Endpoint
-# ---------------------------
+
 @app.route('/api/audit_logs', methods=['GET'])
 @token_required
 @role_required(['admin', 'manager'])
@@ -1249,8 +1417,86 @@ def get_audit_logs():
     logs = AuditLog.query.order_by(AuditLog.created_at.desc()).limit(limit).all()
     return jsonify([log.to_dict() for log in logs])
 
+
+@app.route('/api/reports/product-profit', methods=['GET'])
+@token_required
+@role_required(['admin', 'manager', 'cashier'])
+def product_profit_report():
+    from_date = request.args.get('from_date')
+    to_date = request.args.get('to_date')
+    query = db.session.query(
+        Product.id, Product.name, Product.buying_price, Product.selling_price,
+        func.coalesce(func.sum(InvoiceItem.quantity), 0).label('qty_sold'),
+        func.coalesce(func.sum(InvoiceItem.total), 0).label('revenue')
+    ).outerjoin(InvoiceItem, Product.id == InvoiceItem.product_id) \
+        .outerjoin(Invoice, InvoiceItem.invoice_id == Invoice.id)
+    if from_date:
+        query = query.filter(Invoice.sale_date >= from_date)
+    if to_date:
+        query = query.filter(Invoice.sale_date <= to_date)
+    results = query.group_by(Product.id).all()
+    report = []
+    for r in results:
+        qty = int(r.qty_sold)
+        cost_total = float(r.buying_price) * qty
+        revenue_total = float(r.revenue)
+        profit = revenue_total - cost_total
+        report.append({
+            'product_id': r.id,
+            'name': r.name,
+            'buying_price': float(r.buying_price),
+            'selling_price': float(r.selling_price),
+            'quantity_sold': qty,
+            'total_cost': round(cost_total, 2),
+            'total_revenue': round(revenue_total, 2),
+            'profit': round(profit, 2)
+        })
+    return jsonify(report)
+
+
+@app.route('/api/reports/daily-profit-loss', methods=['GET'])
+@token_required
+@role_required(['admin', 'manager', 'cashier'])
+def daily_profit_loss():
+    from_date = request.args.get('from_date')
+    to_date = request.args.get('to_date')
+    cost_subq = db.session.query(
+        InvoiceItem.invoice_id,
+        func.sum(cast(Product.buying_price, Numeric(10, 2)) * InvoiceItem.quantity).label('total_cost')
+    ).join(Product, InvoiceItem.product_id == Product.id) \
+        .group_by(InvoiceItem.invoice_id).subquery()
+    query = db.session.query(
+        func.date(Invoice.sale_date).label('date'),
+        func.sum(Invoice.total).label('revenue'),
+        func.coalesce(func.sum(cost_subq.c.total_cost), 0).label('cost')
+    ).outerjoin(cost_subq, Invoice.id == cost_subq.c.invoice_id) \
+        .group_by(func.date(Invoice.sale_date))
+    if from_date:
+        query = query.filter(Invoice.sale_date >= from_date)
+    if to_date:
+        query = query.filter(Invoice.sale_date <= to_date)
+    results = query.order_by(func.date(Invoice.sale_date).desc()).all()
+    daily_report = []
+    for r in results:
+        revenue = float(r.revenue) if r.revenue else 0
+        cost = float(r.cost) if r.cost else 0
+        profit = revenue - cost
+        # Convert date safely (SQLite returns string, PostgreSQL returns date)
+        if hasattr(r.date, 'isoformat'):
+            date_str = r.date.isoformat()
+        else:
+            date_str = str(r.date)
+        daily_report.append({
+            'date': date_str,
+            'total_cost': round(cost, 2),
+            'total_revenue': round(revenue, 2),
+            'profit': round(profit, 2)
+        })
+    return jsonify(daily_report)
+
+
 # ---------------------------
-# Run app (for local development only)
+# Run app
 # ---------------------------
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
