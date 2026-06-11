@@ -1,0 +1,7 @@
+ 
+BACKEND/instance/pos.db
+instance/
+*.db
+__pycache__/
+*.pyc
+.env
